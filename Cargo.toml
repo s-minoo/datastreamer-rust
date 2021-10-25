@@ -1,0 +1,13 @@
+[package]
+name = "rstream-in"
+version = "0.2.0"
+authors = ["Gerald Haesendonck <gerald.haesendonck@ugent.be>", "Sitt Min Oo <x.sittminoo@ugent.be>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[profile.release]
+opt-level = 3
+
+[dependencies]
+json = "0.12.4"  # serde-json seems to be much slower
+clap = "2.33.0"
