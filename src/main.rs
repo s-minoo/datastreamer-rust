@@ -1,125 +1,135 @@
-use std::fs::File;
-use std::fs;
-use std::io::{BufReader, BufWriter, prelude::*, Write};
-use std::net::{Shutdown, TcpListener, TcpStream};
-use std::str::FromStr;
-use std::thread::sleep;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+pub mod publisher;
 
-use clap::{App, Arg};
-use json::JsonValue;
+use env_logger::Env;
+use futures_util::future::join_all;
+use futures_util::{future, SinkExt, StreamExt};
+use log::{debug, error, info};
+use serde::Deserialize;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use std::net::SocketAddr;
+use tokio::fs::File;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::time::Duration;
+use tokio_tungstenite::tungstenite::{Message, Result};
+use tokio_tungstenite::{accept_async, tungstenite::Error};
+use walkdir::WalkDir;
 
-fn main() {
-  let matches = App::new("StreamFromFile")
-    .args(&[
-    Arg::from_usage("-b --bind-address=[IP:PORT] 'Sets the bind address of the TCP socket.'").default_value("0.0.0.0:9999"),
-    Arg::from_usage("-d --delay=[nanoseconds] 'Sets the delay *between* sending two messages, in nanoseconds.'").default_value("0"),
-    Arg::from_usage("-f --input-file=[PATH TO INPUT FILE] 'The path to the ndjson file of which each line will be sent as a record to the RDF conversion tool.'").required(true),
-    Arg::from_usage("-i --id-field=[ID FIELD] 'The field of the json that acts as the ID'").required(true),
-    Arg::from_usage("-r --duration=[seconds] 'The duration of the run, in seconds'").default_value("60"),
-    Arg::from_usage("-o --output-file=[PATH TO OUTPUT FILE] 'The path to the file where timings will be written.'").required(true),
-  ]).get_matches();
-
-  let bind_address = matches.value_of("bind-address").unwrap();
-  println!("bind-address: {}", bind_address);
-  let delay_arg = matches.value_of("delay").unwrap();
-  println!("delay:        {} nanoseconds", delay_arg);
-  let delay_value = u32::from_str(delay_arg).expect("'delay' should be a number (u32)");
-  let delay = Duration::new(0, delay_value);
-  let duration_arg = matches.value_of("duration").unwrap();
-  println!("duration:     {} seconds", duration_arg);
-  let duration = u64::from_str(duration_arg).expect("'duration' should be a number (u64)");
-  let in_file = matches.value_of("input-file").expect("No input file given.");
-  println!("input-file:   {}", in_file);
-  let id_field = matches.value_of("id-field").expect("No id field given.");
-  println!("id-field:     {}", id_field);
-  let time_file = matches.value_of("output-file").expect("No output file given.");
-  
-  let listener = TcpListener::bind(bind_address).expect("Could not start TCP listener");
-  
-  let data = "Some data!";
-  fs::write("./i-am-alive", data).expect("Unable to write i-am-alive file.");
-  for stream in listener.incoming() {
-    match stream {
-      Ok(tcp_stream) => {
-        // do something with the TcpStream
-        println!("Got stream.");
-        stream_file(&tcp_stream, in_file, time_file, delay, id_field, duration);
-        println!("Shutting down stream.");
-        tcp_stream.shutdown(Shutdown::Both).expect("shutdown call failed");
-        break; // exit the program
-      }
-      Err(e) => panic!("encountered IO error: {}", e),
-    }
-  }
+#[derive(Debug, Deserialize)]
+enum Mode {
+    Constant,
+    Periodic,
 }
 
-fn stream_file(mut stream: &TcpStream, input_file: &str, time_file: &str, delay: Duration, id_field: &str, duration: u64) {
-  // open input file
-  let input_lines = load_file(input_file);
-
-  // open time records file
-  let t_file = File::create(time_file).expect("Could not create time records file");
-  let mut time_buffer = BufWriter::new(t_file);
-
-  let mut record_counter: u64 = 0;
-
-  // start duration "timer"
-  let start_time = SystemTime::now();
-
-  let mut timeout = false;
-
-  let mut total_bytes_sent: usize = 0;
-
-  while !timeout {
-    for line in &input_lines {
-      let id = record_counter.to_string();
-      record_counter += 1;
-
-      // replace the value at "id_str" with number of the record.
-      let mut json = json::parse(&line).expect("Could not parse JSON input");
-      json[id_field] = JsonValue::from(id.clone());
-      let mut record_to_stream = json.dump();
-      record_to_stream.push('\n');
-
-      let bytes_to_send = record_to_stream.as_bytes();
-      total_bytes_sent += bytes_to_send.len();
-
-      // calculate current timestamp
-      let current_time = SystemTime::now();
-      let since_the_epoch = current_time.duration_since(UNIX_EPOCH).expect("ERROR: Time went backwards");
-      let timestamp = since_the_epoch.as_millis(); // currently the receiver supports millisec.
-
-      // write to socket
-      stream.write_all(bytes_to_send).expect("ERROR: Something went wrong writing to client"); // Rust Strings are UTF-8 encoded.
-
-      // log time stamp and bytes written.
-      let mut timelog_str = String::new();
-      timelog_str.push_str(&id);
-      timelog_str.push(',');
-      timelog_str.push_str(&timestamp.to_string());
-      timelog_str.push(',');
-      timelog_str.push_str(&total_bytes_sent.to_string());
-      timelog_str.push('\n');
-      time_buffer.write_all(timelog_str.as_bytes()).expect("ERROR: Writing id to file went wrong");
-
-      sleep(delay);
-
-      // check if `duration` has not passed yet.
-      let elapsed_time = start_time.elapsed().expect("Something went wrong reading system time");
-      if elapsed_time.as_secs() > duration {
-        timeout = true;
-        println!("Time-out. Stopping.");
-        break;
-      }
-    }
-  }
+#[derive(Deserialize, Debug)]
+struct Config {
+    ip: String,
+    port: Option<u16>,
+    mode: Mode,
+    log_level: Option<&'static str>,
+    data_folder: Option<&'static str>,
 }
 
-fn load_file(input_file: &str) -> Vec<String> {
-  let file = File::open(input_file).expect("no such file");
-  let buf = BufReader::new(file);
-  buf.lines()
-    .map(|l| l.expect("Could not parse line"))
-    .collect()
+pub fn get_data_files(data_root_dir: &str) -> Vec<impl futures_util::Future<Output= std::result::Result<File,std::io::Error>>>{
+    WalkDir::new(data_root_dir)
+        .sort_by_file_name()
+        .into_iter()
+        .filter_map(|f| f.ok())
+        .filter(|f| f.file_type().is_file())
+        .map(|f| f.into_path())
+        .map(File::open)
+        .collect()
+}
+
+#[tokio::main]
+async fn main() -> Result<()>{
+    let config = include_str!("./resources/config.toml");
+    let config_struct: Config = toml::from_str(config).unwrap();
+
+    let env = Env::default()
+        .filter_or("MY_LOG_LEVEL", config_struct.log_level.unwrap_or("debug"))
+        .write_style_or("MY_LOG_STYLE", "auto");
+
+    env_logger::init_from_env(env);
+
+    info!("starting up");
+
+    let future_buffers =  join_all(get_data_files(config_struct.data_folder.unwrap())).await
+        .into_iter()
+        .map(|f| f.unwrap())
+        .map(|f| BufReader::new(f).lines());
+
+
+
+    for mut buffer in future_buffers{
+        while let Some(line) = buffer.next_line().await? {
+            println!("{}",line);
+        }
+    }
+
+    debug!("{:?}", config_struct);
+
+    Ok(())
+    
+    //start_stream(config_struct).await;
+}
+
+async fn start_stream(config_struct: Config) {
+    let addr = format!(
+        "{}:{}",
+        config_struct.ip,
+        config_struct.port.unwrap_or(9000)
+    );
+    let listener = TcpListener::bind(&addr).await.expect("Can't listen");
+    info!("Listening on: {}", addr);
+    while let Ok((stream, _)) = listener.accept().await {
+        let peer = stream
+            .peer_addr()
+            .expect("connected streams should have a peer address");
+
+        info!("Peer address: {}", peer);
+
+        tokio::spawn(accept_connection(peer, stream));
+    }
+}
+
+async fn accept_connection(peer: std::net::SocketAddr, stream: tokio::net::TcpStream) {
+    if let Err(e) = handle_connection(peer, stream).await {
+        match e {
+            Error::ConnectionClosed | Error::Protocol(_) | Error::Utf8 => (),
+            err => error!("Error processing connection: {}", err),
+        }
+    }
+}
+async fn handle_connection(peer: SocketAddr, stream: TcpStream) -> Result<()> {
+    let ws_stream = accept_async(stream).await.expect("Failed to accept");
+    info!("New WebSocket connection: {}", peer);
+    let (mut ws_sender, mut ws_receiver) = ws_stream.split();
+    let mut interval = tokio::time::interval(Duration::from_millis(1000));
+
+    // Echo incoming WebSocket messages and send a message periodically every second.
+    //
+    //
+
+    loop {
+        tokio::select! {
+            msg = ws_receiver.next() => {
+                match msg {
+                    Some(msg) => {
+                        let msg = msg?;
+                        if msg.is_text() ||msg.is_binary() {
+                            ws_sender.send(msg).await?;
+                        } else if msg.is_close() {
+                            break;
+                        }
+                    }
+                    None => break,
+                }
+            }
+            _ = interval.tick() => {
+                ws_sender.send(Message::Text("tick".to_owned())).await?;
+            }
+        }
+    }
+
+    Ok(())
 }
