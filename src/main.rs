@@ -1,49 +1,21 @@
 pub mod publisher;
+pub mod util;
 
+use crate::util::{Config, StreamConfig};
 use env_logger::Env;
-use futures_util::future::join_all;
-use futures_util::{future, SinkExt, StreamExt};
-use log::{debug, error, info};
-use serde::Deserialize;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use futures_util::{SinkExt, StreamExt};
+use log::{debug, error, info, warn};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use std::net::SocketAddr;
-use tokio::fs::File;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::Duration;
 use tokio_tungstenite::tungstenite::{Message, Result};
 use tokio_tungstenite::{accept_async, tungstenite::Error};
-use walkdir::WalkDir;
-
-#[derive(Debug, Deserialize)]
-enum Mode {
-    Constant,
-    Periodic,
-}
-
-#[derive(Deserialize, Debug)]
-struct Config {
-    ip: String,
-    port: Option<u16>,
-    mode: Mode,
-    log_level: Option<&'static str>,
-    data_folder: Option<&'static str>,
-}
-
-pub fn get_data_files(data_root_dir: &str) -> Vec<impl futures_util::Future<Output= std::result::Result<File,std::io::Error>>>{
-    WalkDir::new(data_root_dir)
-        .sort_by_file_name()
-        .into_iter()
-        .filter_map(|f| f.ok())
-        .filter(|f| f.file_type().is_file())
-        .map(|f| f.into_path())
-        .map(File::open)
-        .collect()
-}
 
 #[tokio::main]
-async fn main() -> Result<()>{
+async fn main() -> Result<()> {
     let config = include_str!("./resources/config.toml");
-    let config_struct: Config = toml::from_str(config).unwrap();
+    let mut config_struct: Config = toml::from_str(config).unwrap();
 
     let env = Env::default()
         .filter_or("MY_LOG_LEVEL", config_struct.log_level.unwrap_or("debug"))
@@ -52,33 +24,47 @@ async fn main() -> Result<()>{
     env_logger::init_from_env(env);
 
     info!("starting up");
+    debug!("{:?}", config_struct);
 
-    let future_buffers =  join_all(get_data_files(config_struct.data_folder.unwrap())).await
-        .into_iter()
-        .map(|f| f.unwrap())
-        .map(|f| BufReader::new(f).lines());
+    let config_struct = config_struct.streamconfigs.remove(0);
 
+    let mut files = util::create_file_buffers(&config_struct).await;
 
+    debug!("{:?}", config_struct);
+    debug!("{:?}", files);
+    let mut data = files.into_iter().map(|f| BufReader::new(f));
 
-    for mut buffer in future_buffers{
-        while let Some(line) = buffer.next_line().await? {
-            println!("{}",line);
+    for bf in &mut data {
+        let mut lines = bf.lines();
+        warn!("{:?}", lines);
+        while let Some(line) = lines.next_line().await? {
         }
     }
+
+    for bf in &mut data {
+        let mut lines = bf.lines();
+        warn!("{:?}", lines);
+        while let Some(line) = lines.next_line().await? {
+            println!("{:?}", line);
+        }
+    }
+
+    info!("{:?}", data);
 
     debug!("{:?}", config_struct);
 
     Ok(())
-    
+
     //start_stream(config_struct).await;
 }
 
-async fn start_stream(config_struct: Config) {
+async fn start_stream(config_struct: &StreamConfig) {
     let addr = format!(
         "{}:{}",
         config_struct.ip,
         config_struct.port.unwrap_or(9000)
     );
+
     let listener = TcpListener::bind(&addr).await.expect("Can't listen");
     info!("Listening on: {}", addr);
     while let Ok((stream, _)) = listener.accept().await {
@@ -108,11 +94,11 @@ async fn handle_connection(peer: SocketAddr, stream: TcpStream) -> Result<()> {
 
     // Echo incoming WebSocket messages and send a message periodically every second.
     //
-    //
 
     loop {
         tokio::select! {
             msg = ws_receiver.next() => {
+
                 match msg {
                     Some(msg) => {
                         let msg = msg?;

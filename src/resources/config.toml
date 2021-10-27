@@ -1,5 +1,6 @@
+[[streamconfigs]]
 ip = "localhost"
 port = 9000
 mode = "Constant"
-data_folder = "./data/time"
+data_folder = "./data/flow"
 
