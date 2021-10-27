@@ -1,5 +1,6 @@
 pub mod publisher;
 pub mod util;
+pub mod parser;
 
 use crate::{publisher::constant::start_stream, util::Config};
 use env_logger::Env;

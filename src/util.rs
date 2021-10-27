@@ -29,6 +29,8 @@ pub struct StreamConfig {
     #[serde(default = "default_port")]
     pub port: u16,
     pub mode: Mode,
+    #[serde(default = "default_interval_ms")]
+    pub interval_ms: u32,
     #[serde(default = "default_period_ms")]
     pub calm_period_ms: u32,
     #[serde(default = "default_output_fmt")]
@@ -36,6 +38,9 @@ pub struct StreamConfig {
     pub data_folder: Option<&'static str>,
 }
 
+fn default_interval_ms() -> u32{
+    400
+}
 fn default_output_fmt() -> OutputFmt {
     OutputFmt::JSON
 }
