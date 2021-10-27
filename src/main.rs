@@ -1,21 +1,16 @@
 pub mod publisher;
 pub mod util;
 
-use crate::util::{Config, StreamConfig};
+use crate::{publisher::constant::start_stream, util::Config};
 use env_logger::Env;
-use futures_util::{SinkExt, StreamExt};
-use log::{debug, error, info, warn};
-use tokio::io::{AsyncBufReadExt, BufReader};
-use std::net::SocketAddr;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::time::Duration;
-use tokio_tungstenite::tungstenite::{Message, Result};
-use tokio_tungstenite::{accept_async, tungstenite::Error};
+use futures_util::future::join_all;
+use log::{debug, info};
+use tokio_tungstenite::tungstenite::Result;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let config = include_str!("./resources/config.toml");
-    let mut config_struct: Config = toml::from_str(config).unwrap();
+    let config_struct: Config = toml::from_str(config).unwrap();
 
     let env = Env::default()
         .filter_or("MY_LOG_LEVEL", config_struct.log_level.unwrap_or("debug"))
@@ -26,96 +21,13 @@ async fn main() -> Result<()> {
     info!("starting up");
     debug!("{:?}", config_struct);
 
-    let config_struct = config_struct.streamconfigs.remove(0);
+    let configs = config_struct.streamconfigs;
 
-    let mut files = util::create_file_buffers(&config_struct).await;
+    let stream_futures: Vec<_> = configs.into_iter().map(move |f| start_stream(f)).collect();
 
-    debug!("{:?}", config_struct);
-    debug!("{:?}", files);
-    let mut data = files.into_iter().map(|f| BufReader::new(f));
-
-    for bf in &mut data {
-        let mut lines = bf.lines();
-        warn!("{:?}", lines);
-        while let Some(line) = lines.next_line().await? {
-        }
-    }
-
-    for bf in &mut data {
-        let mut lines = bf.lines();
-        warn!("{:?}", lines);
-        while let Some(line) = lines.next_line().await? {
-            println!("{:?}", line);
-        }
-    }
-
-    info!("{:?}", data);
-
-    debug!("{:?}", config_struct);
+    join_all(stream_futures).await;
 
     Ok(())
 
     //start_stream(config_struct).await;
-}
-
-async fn start_stream(config_struct: &StreamConfig) {
-    let addr = format!(
-        "{}:{}",
-        config_struct.ip,
-        config_struct.port.unwrap_or(9000)
-    );
-
-    let listener = TcpListener::bind(&addr).await.expect("Can't listen");
-    info!("Listening on: {}", addr);
-    while let Ok((stream, _)) = listener.accept().await {
-        let peer = stream
-            .peer_addr()
-            .expect("connected streams should have a peer address");
-
-        info!("Peer address: {}", peer);
-
-        tokio::spawn(accept_connection(peer, stream));
-    }
-}
-
-async fn accept_connection(peer: std::net::SocketAddr, stream: tokio::net::TcpStream) {
-    if let Err(e) = handle_connection(peer, stream).await {
-        match e {
-            Error::ConnectionClosed | Error::Protocol(_) | Error::Utf8 => (),
-            err => error!("Error processing connection: {}", err),
-        }
-    }
-}
-async fn handle_connection(peer: SocketAddr, stream: TcpStream) -> Result<()> {
-    let ws_stream = accept_async(stream).await.expect("Failed to accept");
-    info!("New WebSocket connection: {}", peer);
-    let (mut ws_sender, mut ws_receiver) = ws_stream.split();
-    let mut interval = tokio::time::interval(Duration::from_millis(1000));
-
-    // Echo incoming WebSocket messages and send a message periodically every second.
-    //
-
-    loop {
-        tokio::select! {
-            msg = ws_receiver.next() => {
-
-                match msg {
-                    Some(msg) => {
-                        let msg = msg?;
-                        if msg.is_text() ||msg.is_binary() {
-                            ws_sender.send(msg).await?;
-                        } else if msg.is_close() {
-                            break;
-                        }
-                    }
-                    None => break,
-                }
-            }
-            _ = interval.tick() => {
-                ws_sender.send(Message::Text("tick".to_owned())).await?;
-            }
-        }
-    }
-
-    Ok(())
 }

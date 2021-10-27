@@ -4,3 +4,9 @@ port = 9000
 mode = "Constant"
 data_folder = "./data/flow"
 
+[[streamconfigs]]
+ip = "localhost"
+port = 9001
+mode = "Constant"
+data_folder = "./data/speed"
+

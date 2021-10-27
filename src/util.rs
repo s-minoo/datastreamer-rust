@@ -1,13 +1,20 @@
 use futures_util::future::join_all;
 use serde::Deserialize;
 use tokio::fs::File;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::BufReader;
 use walkdir::WalkDir;
 
 #[derive(Debug, Deserialize)]
 pub enum Mode {
     Constant,
     Periodic,
+}
+
+#[derive(Debug, Deserialize)]
+pub enum OutputFmt {
+    JSON,
+    XML,
+    CSV,
 }
 
 #[derive(Debug, Deserialize)]
@@ -19,20 +26,32 @@ pub struct Config {
 #[derive(Deserialize, Debug)]
 pub struct StreamConfig {
     pub ip: String,
-    pub port: Option<u16>,
+    #[serde(default = "default_port")]
+    pub port: u16,
     pub mode: Mode,
-    pub calm_period_ms: Option<u32>,
-    pub output_format: Option<&'static str>,
+    #[serde(default = "default_period_ms")]
+    pub calm_period_ms: u32,
+    #[serde(default = "default_output_fmt")]
+    pub output_format: OutputFmt,
     pub data_folder: Option<&'static str>,
 }
 
-pub async fn create_file_buffers(
-    config_struct: &StreamConfig,
-) -> Vec<File> {
+fn default_output_fmt() -> OutputFmt {
+    OutputFmt::JSON
+}
+fn default_period_ms() -> u32 {
+    400
+}
+fn default_port() -> u16 {
+    9000
+}
+
+pub async fn create_file_buffers(config_struct: &StreamConfig) -> Vec<BufReader<File>> {
     let future_buffers: Vec<_> = join_all(recurs_get_files(config_struct.data_folder.unwrap()))
         .await
         .into_iter()
         .map(|f| f.unwrap())
+        .map(BufReader::new)
         .collect();
     future_buffers
 }
