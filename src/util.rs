@@ -4,6 +4,8 @@ use tokio::fs::File;
 use tokio::io::BufReader;
 use walkdir::WalkDir;
 
+use crate::parser::Parser;
+
 #[derive(Debug, Deserialize)]
 pub enum Mode {
     Constant,
@@ -38,7 +40,9 @@ pub struct StreamConfig {
     pub data_folder: Option<&'static str>,
 }
 
-fn default_interval_ms() -> u32{
+
+
+fn default_interval_ms() -> u32 {
     400
 }
 fn default_output_fmt() -> OutputFmt {
@@ -51,8 +55,8 @@ fn default_port() -> u16 {
     9000
 }
 
-pub async fn create_file_buffers(config_struct: &StreamConfig) -> Vec<BufReader<File>> {
-    let future_buffers: Vec<_> = join_all(recurs_get_files(config_struct.data_folder.unwrap()))
+pub async fn create_file_buffers(data_root: &str) -> Vec<BufReader<File>> {
+    let future_buffers: Vec<_> = join_all(recurs_get_files(data_root))
         .await
         .into_iter()
         .map(|f| f.unwrap())
