@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::parser::{NDWParser, Parser};
+use crate::parser::{NDWProcessor, Processor};
 use crate::util::{self, StreamConfig};
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, error, info};
@@ -8,9 +8,10 @@ use std::net::SocketAddr;
 use tokio::io::AsyncBufReadExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
-
 use tokio_tungstenite::tungstenite::{Message, Result};
 use tokio_tungstenite::{accept_async, tungstenite::Error};
+use std::io::Error as StdError;
+use std::io::ErrorKind as StdErrorKind;
 pub mod constant;
 type SharedData = Arc<RwLock<Vec<String>>>;
 
@@ -28,7 +29,7 @@ pub async fn start_stream(config_struct: StreamConfig) -> Result<()> {
         config_struct.ip, config_struct.port, data_root
     );
 
-    let data = store_file_mem(data_root, NDWParser::parse).await?;
+    let data = store_file_mem(data_root, NDWProcessor::parse).await?;
     info!("Finished reading");
 
     let shared_data: SharedData = Arc::new(RwLock::new(data));
@@ -52,9 +53,10 @@ pub async fn start_stream(config_struct: StreamConfig) -> Result<()> {
 ///
 /// Recursively find the data files in the given root data directory
 /// and creates async BufReaders which are used to read the
-async fn store_file_mem<T, F>(data_root: &str, parser_f: F) -> Result<Vec<T>>
+async fn store_file_mem<T: 'static, F: 'static>(data_root: &str, parser_f: F) -> Result<Vec<T>>
 where
-    F: Fn(&str) -> T,
+    F: Fn(&str) -> T + std::marker::Send + Copy, 
+    T: std::marker::Send
 {
     let mut files = util::create_file_buffers(data_root).await;
     debug!("{:?}", data_root);
@@ -64,7 +66,10 @@ where
     for bf in &mut files {
         let mut lines = bf.lines();
         while let Some(line) = lines.next_line().await? {
-            let line = parser_f(line.as_str());
+            let line = match tokio::task::spawn_blocking(move || parser_f(line.as_str())).await {
+                Ok(it) => it,
+                Err(err) => return Err(Error::Io(StdError::new(StdErrorKind::Other, err))),
+            };
             data.push(line);
         }
     }

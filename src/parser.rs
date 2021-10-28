@@ -1,6 +1,7 @@
-pub struct NDWParser {}
+pub struct NDWProcessor {}
 
-impl NDWParser {
+
+impl NDWProcessor {
     fn put_lane_number_in_body(key: &String, body: &String) -> String {
         let lane = key
             .match_indices("/lane")
@@ -12,11 +13,11 @@ impl NDWParser {
         format!("{{\"internalId\": \"{}\" {}", lane, &body[1..])
     }
 }
-pub trait Parser<T> {
+pub trait Processor<T> {
     fn parse(input_line: &str) -> T;
 }
 
-impl Parser<String> for NDWParser {
+impl Processor<String> for NDWProcessor {
     fn parse(input_line: &str) -> String {
         //Same as the DataUtils method in data-stream-generator module of the
         //open stream processing benchmark (OSP benchmark)
@@ -25,6 +26,6 @@ impl Parser<String> for NDWParser {
             splitted_line[0].trim().to_owned(),
             splitted_line[1].trim().to_owned(),
         );
-        NDWParser::put_lane_number_in_body(&key, &body)
+        NDWProcessor::put_lane_number_in_body(&key, &body)
     }
 }

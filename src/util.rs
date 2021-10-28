@@ -4,7 +4,7 @@ use tokio::fs::File;
 use tokio::io::BufReader;
 use walkdir::WalkDir;
 
-use crate::parser::Parser;
+use crate::parser::Processor;
 
 #[derive(Debug, Deserialize)]
 pub enum Mode {
