@@ -10,7 +10,7 @@ impl NDWProcessor {
             .pop()
             .unwrap_or(String::from("UNKNOWN"));
 
-        format!("{{\"internalId\": \"{}\" {}", lane, &body[1..])
+        format!("{{\"internalId\":\"{}\",{}", lane, &body[1..])
     }
 }
 pub trait Processor<T> {
