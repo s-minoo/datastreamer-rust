@@ -2,7 +2,7 @@ pub mod parser;
 pub mod publisher;
 pub mod util;
 
-use crate::{publisher::start_stream, util::Config};
+use crate::{parser::{Processor, ndwprocessor::NDWProcessor}, publisher::start_stream, util::Config};
 use env_logger::Env;
 use futures_util::future::join_all;
 use log::{debug, info};
@@ -24,7 +24,10 @@ async fn main() -> Result<()> {
 
     let configs = config_struct.streamconfigs;
 
-    let stream_futures: Vec<_> = configs.into_iter().map(move |f| start_stream(f)).collect();
+    let stream_futures: Vec<_> = configs
+        .into_iter()
+        .map(move |f| start_stream(f, NDWProcessor::parse))
+        .collect();
 
     join_all(stream_futures).await;
 

@@ -1,3 +1,4 @@
 [alias]
 
 devrun ="run --bin rstream-in "
+devfix = "fix --allow-dirty"

@@ -4,8 +4,6 @@ use tokio::fs::File;
 use tokio::io::BufReader;
 use walkdir::WalkDir;
 
-use crate::parser::Processor;
-
 #[derive(Debug, Deserialize)]
 pub enum Mode {
     Constant,
@@ -39,8 +37,6 @@ pub struct StreamConfig {
     pub output_format: OutputFmt,
     pub data_folder: Option<&'static str>,
 }
-
-
 
 fn default_interval_ms() -> u32 {
     400
