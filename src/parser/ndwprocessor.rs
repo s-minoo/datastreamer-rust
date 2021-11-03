@@ -1,8 +1,12 @@
-use std::{collections::HashMap, fmt::Display};
-use regex::Regex;
 use chrono::NaiveDateTime;
 use itertools::Itertools;
 use lazy_static::lazy_static;
+use regex::Regex;
+use std::{
+    collections::HashMap,
+    fmt::Display,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use super::Processor;
 lazy_static! {
@@ -13,7 +17,7 @@ lazy_static! {
 #[derive(Debug)]
 pub struct NDWModel {
     pub timestamp: NaiveDateTime,
-    message: String,
+    pub message: String,
 }
 
 impl Display for NDWModel {
@@ -36,7 +40,7 @@ impl NDWProcessor {
 
     fn assemble_model(key: &String, body: &String) -> NDWModel {
         let lane = NDWProcessor::extract_lane(key);
-        let message = format!("{{\"internalId\": \"{}\", {}", lane, &body[1..]);
+        let message = format!("{{\"internalId\": \"{}\", {}", lane, &body[1..].trim());
 
         let timestamp_str = NDWProcessor::extract_timestamp(body);
         let timestamp = NaiveDateTime::parse_from_str(timestamp_str, "%Y-%m-%d %T%.f").expect(
@@ -61,7 +65,7 @@ impl NDWProcessor {
 
 impl Processor for NDWProcessor {
     type Model = NDWModel;
-    type Output = String;
+    type Output = NDWModel;
     type Key = NaiveDateTime;
     fn parse(input_line: &str) -> (Self::Key, Self::Model) {
         //Same as the DataUtils method in data-stream-generator module of the
@@ -79,7 +83,23 @@ impl Processor for NDWProcessor {
 
     fn group_output(
         input_data: Vec<(Self::Key, Self::Model)>,
-    ) -> HashMap<Self::Key, Vec<Self::Model>> {
+    ) -> HashMap<Self::Key, Vec<Self::Output>> {
         input_data.into_iter().into_group_map()
+    }
+
+    fn insert_current_time(model: Self::Model) -> Self::Model {
+        let current_time_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let body = format!(
+            r#"{}, "timestamp": {} }} "#,
+            model.message[..model.message.len() - 1].to_string(),
+            current_time_ms.to_string()
+        );
+        NDWModel {
+            message: body,
+            ..model
+        }
     }
 }

@@ -1,5 +1,5 @@
 [package]
-name = "rstream-in"
+name = "datastreamer"
 version = "0.2.0"
 authors = ["Gerald Haesendonck <gerald.haesendonck@ugent.be>", "Sitt Min Oo <x.sittminoo@ugent.be>"]
 edition = "2018"
@@ -9,6 +9,9 @@ edition = "2018"
 opt-level = 3
 
 [dependencies]
+serde_yaml = "0.8"
+metered= "0.8"
+async-trait = "0.1.51"
 lazy_static = "1.4.0"
 bytes = "1"
 chrono = "0.4"

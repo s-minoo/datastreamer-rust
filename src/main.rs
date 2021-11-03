@@ -2,7 +2,11 @@ pub mod parser;
 pub mod publisher;
 pub mod util;
 
-use crate::{parser::{Processor, ndwprocessor::NDWProcessor}, publisher::start_stream, util::Config};
+use crate::{
+    parser::{ndwprocessor::NDWProcessor, Processor},
+    publisher::start_stream,
+    util::Config,
+};
 use env_logger::Env;
 use futures_util::future::join_all;
 use log::{debug, info};

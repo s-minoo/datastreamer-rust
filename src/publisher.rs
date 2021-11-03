@@ -1,27 +1,30 @@
+use crate::parser::Processor;
+use crate::util::{self, StreamConfig};
+use async_trait::async_trait;
+use futures_util::stream::SplitSink;
+use futures_util::{SinkExt, StreamExt};
+use lazy_static::lazy_static;
+use log::{debug, error, info};
+use metered::{HitCount, Throughput, measure};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use crate::parser::Processor;
-use crate::util::{self, StreamConfig};
-use futures_util::{SinkExt, StreamExt};
-use log::{debug, error, info};
-
 use std::io::Error as StdError;
 use std::io::ErrorKind as StdErrorKind;
 use std::net::SocketAddr;
+use std::thread::sleep;
+use std::time::Duration;
+
 use tokio::io::AsyncBufReadExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 use tokio_tungstenite::tungstenite::{Message, Result};
-use tokio_tungstenite::{accept_async, tungstenite::Error};
+use tokio_tungstenite::{accept_async, tungstenite::Error, WebSocketStream};
 pub mod constant;
 
 type SharedData = Arc<RwLock<Vec<String>>>;
 
-trait Publisher {
-    fn publish(_config_struct: StreamConfig) {}
-}
 ///
 /// Starts a TCP stream for the given stream configuration.
 /// New web socekts will be spawned in tokio async threads for each new connection.
@@ -43,9 +46,9 @@ where
     let data = store_file_mem(data_root, parser_f)
         .await?
         .into_iter()
-        .map(|f| format!("{:?}", f) )
+        .map(|f| format!("{:?}", f))
         .collect();
-    info!("Finished reading");
+    info!("Finished reading and grouping");
 
     let shared_data: SharedData = Arc::new(RwLock::new(data));
 
@@ -65,9 +68,12 @@ where
     Ok(())
 }
 
-async fn test_store_file_mem< F: 'static>(data_root: &str, parser_f: F) -> Result<HashMap<<F as Processor>::Key, Vec<<F as Processor>::Model >>>
+async fn test_store_file_mem<F: 'static>(
+    data_root: &str,
+    _parser_f: F,
+) -> Result<HashMap<<F as Processor>::Key, Vec<<F as Processor>::Output>>>
 where
-    F: Processor + std::marker::Send + std::marker::Sync
+    F: Processor + std::marker::Send + std::marker::Sync,
 {
     let mut files = util::create_file_buffers(data_root).await;
     debug!("{:?}", data_root);
@@ -85,7 +91,7 @@ where
             file_data.push(line);
         }
 
-        //Blocking thread sort 
+        //Blocking thread sort
         let mut file_data = match tokio::task::spawn_blocking(move || {
             file_data.sort_by(|el, el2| el.0.cmp(&el2.0));
             file_data
@@ -99,12 +105,9 @@ where
         data.append(&mut file_data);
     }
 
-    let data = match tokio::task::spawn_blocking(move || {
-        F::group_output(data)
-    }).await
-    {
-            Ok(res) => res,
-            Err(err) => return Err(Error::Io(StdError::new(StdErrorKind::Other, err))),
+    let data = match tokio::task::spawn_blocking(move || F::group_output(data)).await {
+        Ok(res) => res,
+        Err(err) => return Err(Error::Io(StdError::new(StdErrorKind::Other, err))),
     };
 
     Ok(data)
@@ -157,11 +160,57 @@ async fn handle_connection(
 ) -> Result<()> {
     let ws_stream = accept_async(stream).await.expect("Failed to accept");
     info!("New WebSocket connection: {}", peer);
-    let (mut ws_sender, _) = ws_stream.split();
-    let read = data_lock.read().await;
-    for line in read.iter() {
-        ws_sender.send(Message::Text(line.to_string())).await?;
-    }
-    ws_sender.send(Message::Close(None)).await?;
+    let (ws_sender, _) = ws_stream.split();
+    ConstantPublisher::publish_data(data_lock, ws_sender).await?;
     Ok(())
+}
+
+struct ConstantPublisher {
+    /// Messages published per second
+    rate: u32,
+}
+
+#[derive(Debug, Default)]
+pub struct Metrics {
+    pub throughput: Throughput,
+    pub hitcount: HitCount,
+}
+
+lazy_static! {
+    static ref METRICS: Metrics = Metrics {
+        ..Default::default()
+    };
+}
+
+#[async_trait]
+impl Publisher for ConstantPublisher {
+    async fn publish_data(
+        data_lock: Arc<RwLock<Vec<String>>>,
+        mut ws_sender: SplitSink<WebSocketStream<TcpStream>, Message>,
+    ) -> Result<()> {
+        let data = data_lock.read().await;
+
+        for line in data.iter() {
+            measure!(&METRICS.throughput, {ws_sender.send(Message::Text(line.to_string())).await?;});
+        }
+        debug!("Finished sending data");
+        measure!(&METRICS.throughput, {ws_sender.send(Message::Close(None)).await?;});
+
+        debug!(
+            "The throughput for this socket is: {:?}",
+            METRICS.throughput
+        );
+
+
+        debug!("{}", serde_yaml::to_string(&METRICS.throughput).unwrap());
+        Ok(())
+    }
+}
+
+#[async_trait]
+trait Publisher {
+    async fn publish_data(
+        data_lock: Arc<RwLock<Vec<String>>>,
+        mut ws_sender: SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
+    ) -> Result<()>;
 }
