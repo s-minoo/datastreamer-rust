@@ -1,9 +1,8 @@
-pub mod parser;
+pub mod processor;
 pub mod publisher;
 pub mod util;
 
 use crate::{
-    parser::{ndwprocessor::NDWProcessor, Processor},
     publisher::start_stream,
     util::Config,
 };
@@ -30,7 +29,7 @@ async fn main() -> Result<()> {
 
     let stream_futures: Vec<_> = configs
         .into_iter()
-        .map(move |f| start_stream(f, NDWProcessor::parse))
+        .map(move |f| start_stream(f))
         .collect();
 
     join_all(stream_futures).await;

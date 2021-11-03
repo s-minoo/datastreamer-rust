@@ -1,4 +1,4 @@
 [alias]
 
-devrun ="run --bin rstream-in "
+devrun ="run --bin datastreamer"
 devfix = "fix --allow-dirty"

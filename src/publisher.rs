@@ -1,11 +1,11 @@
-use crate::parser::Processor;
+use crate::processor::ndwprocessor::NDWProcessor;
+use crate::processor::{Processor, Record};
+use crate::publisher::constant::ConstantPublisher;
 use crate::util::{self, StreamConfig};
 use async_trait::async_trait;
 use futures_util::stream::SplitSink;
-use futures_util::{SinkExt, StreamExt};
-use lazy_static::lazy_static;
+use futures_util::StreamExt;
 use log::{debug, error, info};
-use metered::{HitCount, Throughput, measure};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -13,28 +13,26 @@ use std::sync::Arc;
 use std::io::Error as StdError;
 use std::io::ErrorKind as StdErrorKind;
 use std::net::SocketAddr;
-use std::thread::sleep;
-use std::time::Duration;
 
 use tokio::io::AsyncBufReadExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 use tokio_tungstenite::tungstenite::{Message, Result};
-use tokio_tungstenite::{accept_async, tungstenite::Error, WebSocketStream};
+use tokio_tungstenite::{accept_async, tungstenite::Error};
 pub mod constant;
 
-type SharedData = Arc<RwLock<Vec<String>>>;
+type SharedData<F> = Arc<RwLock<GroupedData<F>>>;
+type DataKey<T> = <<T as Processor>::Model as Record>::Key;
+type Data<F> = <F as Processor>::Model;
+type GroupedData<F> = HashMap<DataKey<F>,Vec<Data<F>>>;
 
 ///
 /// Starts a TCP stream for the given stream configuration.
 /// New web socekts will be spawned in tokio async threads for each new connection.
-pub async fn start_stream<T: 'static, Proc: 'static>(
+pub async fn start_stream(
     config_struct: StreamConfig,
-    parser_f: Proc,
 ) -> Result<()>
 where
-    T: std::marker::Send + Debug,
-    Proc: Fn(&str) -> T + std::marker::Send + Copy,
 {
     let addr = format!("{}:{}", config_struct.ip, config_struct.port);
     let data_root = config_struct.data_folder.unwrap();
@@ -43,14 +41,11 @@ where
         config_struct.ip, config_struct.port, data_root
     );
 
-    let data = store_file_mem(data_root, parser_f)
-        .await?
-        .into_iter()
-        .map(|f| format!("{:?}", f))
-        .collect();
+    let data = test_store_file_mem(data_root, NDWProcessor).await?;
+
     info!("Finished reading and grouping");
 
-    let shared_data: SharedData = Arc::new(RwLock::new(data));
+    let shared_data = Arc::new(RwLock::new(data));
 
     let listener = TcpListener::bind(&addr).await.expect("Can't listen");
     info!("Listening on: {}", addr);
@@ -63,15 +58,16 @@ where
         let shared_data = shared_data.clone();
         info!("Peer address: {}", peer);
 
-        tokio::spawn(accept_connection(peer, stream, shared_data));
+        tokio::spawn(accept_connection::<NDWProcessor>(peer, stream, shared_data));
     }
     Ok(())
 }
 
+
 async fn test_store_file_mem<F: 'static>(
     data_root: &str,
-    _parser_f: F,
-) -> Result<HashMap<<F as Processor>::Key, Vec<<F as Processor>::Output>>>
+    _processor: F,
+) -> Result<HashMap<DataKey<F>, Vec<Data<F>>>>
 where
     F: Processor + std::marker::Send + std::marker::Sync,
 {
@@ -80,6 +76,7 @@ where
     debug!("{:?}", files);
     let mut data = Vec::new();
 
+    //Start parsing data in files to custom data models 
     for bf in &mut files {
         let mut lines = bf.lines();
         let mut file_data = Vec::new();
@@ -90,31 +87,17 @@ where
             };
             file_data.push(line);
         }
-
-        //Blocking thread sort
-        let mut file_data = match tokio::task::spawn_blocking(move || {
-            file_data.sort_by(|el, el2| el.0.cmp(&el2.0));
-            file_data
-        })
-        .await
-        {
-            Ok(data) => data,
-            Err(err) => return Err(Error::Io(StdError::new(StdErrorKind::Other, err))),
-        };
-
         data.append(&mut file_data);
     }
 
+    //Group the data models by their key 
     let data = match tokio::task::spawn_blocking(move || F::group_output(data)).await {
         Ok(res) => res,
         Err(err) => return Err(Error::Io(StdError::new(StdErrorKind::Other, err))),
     };
-
     Ok(data)
 }
-///
-/// Recursively find the data files in the given root data directory
-/// and creates async BufReaders which are used to read the
+
 async fn store_file_mem<T: 'static, F: 'static>(data_root: &str, parser_f: F) -> Result<Vec<T>>
 where
     F: Fn(&str) -> T + std::marker::Send + Copy,
@@ -140,12 +123,13 @@ where
     Ok(data)
 }
 
-async fn accept_connection(
+async fn accept_connection<Proc>(
     peer: std::net::SocketAddr,
     stream: tokio::net::TcpStream,
-    data_lock: SharedData,
-) {
-    if let Err(e) = handle_connection(peer, stream, data_lock).await {
+    data_lock: SharedData<Proc>,
+) where
+Proc: Processor{
+    if let Err(e) = handle_connection::<Proc>(peer, stream, data_lock).await {
         match e {
             Error::ConnectionClosed | Error::Protocol(_) | Error::Utf8 => (),
             err => error!("Error processing connection: {}", err),
@@ -153,64 +137,26 @@ async fn accept_connection(
     }
 }
 
-async fn handle_connection(
+async fn handle_connection<Proc>(
     peer: SocketAddr,
     stream: TcpStream,
-    data_lock: SharedData,
-) -> Result<()> {
+    data_lock: SharedData<Proc>,
+) -> Result<()> 
+where 
+Proc: Processor  {
     let ws_stream = accept_async(stream).await.expect("Failed to accept");
     info!("New WebSocket connection: {}", peer);
     let (ws_sender, _) = ws_stream.split();
-    ConstantPublisher::publish_data(data_lock, ws_sender).await?;
+    ConstantPublisher::publish_data::<Proc>(data_lock, ws_sender).await?;
     Ok(())
-}
-
-struct ConstantPublisher {
-    /// Messages published per second
-    rate: u32,
-}
-
-#[derive(Debug, Default)]
-pub struct Metrics {
-    pub throughput: Throughput,
-    pub hitcount: HitCount,
-}
-
-lazy_static! {
-    static ref METRICS: Metrics = Metrics {
-        ..Default::default()
-    };
-}
-
-#[async_trait]
-impl Publisher for ConstantPublisher {
-    async fn publish_data(
-        data_lock: Arc<RwLock<Vec<String>>>,
-        mut ws_sender: SplitSink<WebSocketStream<TcpStream>, Message>,
-    ) -> Result<()> {
-        let data = data_lock.read().await;
-
-        for line in data.iter() {
-            measure!(&METRICS.throughput, {ws_sender.send(Message::Text(line.to_string())).await?;});
-        }
-        debug!("Finished sending data");
-        measure!(&METRICS.throughput, {ws_sender.send(Message::Close(None)).await?;});
-
-        debug!(
-            "The throughput for this socket is: {:?}",
-            METRICS.throughput
-        );
-
-
-        debug!("{}", serde_yaml::to_string(&METRICS.throughput).unwrap());
-        Ok(())
-    }
 }
 
 #[async_trait]
 trait Publisher {
-    async fn publish_data(
-        data_lock: Arc<RwLock<Vec<String>>>,
+    async fn publish_data<Proc>(
+        data_lock: SharedData<Proc>,
         mut ws_sender: SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
-    ) -> Result<()>;
+    ) -> Result<()> 
+        where 
+            Proc: Processor;
 }

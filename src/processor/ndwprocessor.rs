@@ -8,7 +8,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use super::Processor;
+use super::{Processor, Record};
 lazy_static! {
     static ref TIMESTAMP_REGEX: Regex =
         Regex::new(r#"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d*"#).unwrap();
@@ -18,6 +18,44 @@ lazy_static! {
 pub struct NDWModel {
     pub timestamp: NaiveDateTime,
     pub message: String,
+}
+
+impl Record for NDWModel {
+    type Key = NaiveDateTime;
+    type Data = String;
+    fn parse(input: &str) -> Self {
+        //Same as the DataUtils method in data-stream-generator module of the
+        //open stream processing benchmark (OSP benchmark)
+        let splitted_line: Vec<_> = input.split("=").collect();
+        let (key, body) = (
+            splitted_line[0].trim().to_owned(),
+            splitted_line[1].trim().to_owned(),
+        );
+        NDWProcessor::assemble_model(&key, &body)
+    }
+
+    fn get_key(&self) -> Self::Key {
+        self.timestamp
+    }
+    fn get_data(&self) -> &Self::Data {
+        &self.message
+    }
+
+    fn insert_current_time(self) -> Self {
+        let current_time_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let body = format!(
+            r#"{}, "timestamp": {} }} "#,
+            self.message[..self.message.len() - 1].to_string(),
+            current_time_ms.to_string()
+        );
+        NDWModel {
+            message: body,
+            ..self
+        }
+    }
 }
 
 impl Display for NDWModel {
@@ -50,7 +88,6 @@ impl NDWProcessor {
             )
             .as_str(),
         );
-
         NDWModel { timestamp, message }
     }
 
@@ -65,41 +102,10 @@ impl NDWProcessor {
 
 impl Processor for NDWProcessor {
     type Model = NDWModel;
-    type Output = NDWModel;
-    type Key = NaiveDateTime;
-    fn parse(input_line: &str) -> (Self::Key, Self::Model) {
-        //Same as the DataUtils method in data-stream-generator module of the
-        //open stream processing benchmark (OSP benchmark)
-        let splitted_line: Vec<_> = input_line.split("=").collect();
-        let (key, body) = (
-            splitted_line[0].trim().to_owned(),
-            splitted_line[1].trim().to_owned(),
-        );
-
-        let model = NDWProcessor::assemble_model(&key, &body);
-
-        (model.timestamp, model)
-    }
 
     fn group_output(
-        input_data: Vec<(Self::Key, Self::Model)>,
-    ) -> HashMap<Self::Key, Vec<Self::Output>> {
+        input_data: Vec<(<Self::Model as Record>::Key, Self::Model)>,
+    ) -> HashMap<<Self::Model as Record>::Key, Vec<Self::Model>> {
         input_data.into_iter().into_group_map()
-    }
-
-    fn insert_current_time(model: Self::Model) -> Self::Model {
-        let current_time_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
-        let body = format!(
-            r#"{}, "timestamp": {} }} "#,
-            model.message[..model.message.len() - 1].to_string(),
-            current_time_ms.to_string()
-        );
-        NDWModel {
-            message: body,
-            ..model
-        }
     }
 }
