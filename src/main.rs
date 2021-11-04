@@ -2,10 +2,20 @@ pub mod processor;
 pub mod publisher;
 pub mod util;
 
-use crate::{processor::ndwprocessor::NDWProcessor, publisher::{constant::{ConstantPublisher, PeriodicPublisher}, start_stream}, util::Config};
+use std::pin::Pin;
+
+use crate::{
+    processor::ndwprocessor::NDWProcessor,
+    publisher::{
+        constant::{ConstantPublisher, PeriodicPublisher},
+        start_stream,
+    },
+    util::Config,
+};
 use env_logger::Env;
-use futures_util::future::{Either, join_all};
+use futures_util::{future::join_all, Future};
 use log::{debug, info};
+
 use tokio_tungstenite::tungstenite::Result;
 
 #[tokio::main]
@@ -26,14 +36,23 @@ async fn main() -> Result<()> {
 
     let stream_futures: Vec<_> = configs
         .into_iter()
-        .map(move |config| {
+        .map(move |config| -> Pin<Box<dyn Future<Output = Result<()>>>> {
             match config.mode {
-                util::Mode::Constant => Either::Left(start_stream(config, &ConstantPublisher{processor:NDWProcessor})),
-                util::Mode::Periodic => Either::Right(start_stream(config, &PeriodicPublisher{processor:NDWProcessor})),
+                util::Mode::Constant => Box::pin(start_stream(
+                    config,
+                    &ConstantPublisher {
+                        processor: NDWProcessor,
+                    },
+                )),
+                util::Mode::Periodic => Box::pin(start_stream(
+                    config,
+                    &PeriodicPublisher {
+                        processor: NDWProcessor,
+                    },
+                )),
             }
         })
         .collect();
-
 
     join_all(stream_futures).await;
 
