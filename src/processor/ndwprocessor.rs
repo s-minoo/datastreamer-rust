@@ -41,7 +41,7 @@ impl Record for NDWModel {
         &self.message
     }
 
-    fn insert_current_time(self) -> Self {
+    fn insert_current_time(&self) -> Self {
         let current_time_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -52,8 +52,8 @@ impl Record for NDWModel {
             current_time_ms.to_string()
         );
         NDWModel {
+            timestamp: self.timestamp,
             message: body,
-            ..self
         }
     }
 }
