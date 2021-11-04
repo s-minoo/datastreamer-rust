@@ -7,6 +7,6 @@ data_folder = "./data/flow"
 [[streamconfigs]]
 ip = "localhost"
 port = 9001
-mode = "Constant"
+mode = "Periodic"
 data_folder = "./data/speed"
 

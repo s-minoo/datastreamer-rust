@@ -14,7 +14,7 @@ use tokio_tungstenite::tungstenite::Result;
 
 use super::SharedData;
 pub struct PeriodicPublisher<T> {
-    processor: T,
+    pub processor: T,
 }
 #[async_trait]
 impl<T: Processor> Publisher for PeriodicPublisher<T> {
