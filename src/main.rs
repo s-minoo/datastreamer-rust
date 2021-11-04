@@ -3,7 +3,8 @@ pub mod publisher;
 pub mod util;
 
 use crate::{
-    publisher::start_stream,
+    processor::ndwprocessor::NDWProcessor,
+    publisher::{constant::ConstantPublisher, start_stream},
     util::Config,
 };
 use env_logger::Env;
@@ -29,7 +30,16 @@ async fn main() -> Result<()> {
 
     let stream_futures: Vec<_> = configs
         .into_iter()
-        .map(move |f| start_stream(f))
+        .map(move |config| {
+            let publisher = match config.mode {
+                util::Mode::Constant => Some(&ConstantPublisher {
+                    processor: NDWProcessor,
+                }),
+                util::Mode::Periodic => todo!(),
+            };
+
+            start_stream(config, publisher.unwrap())
+        })
         .collect();
 
     join_all(stream_futures).await;

@@ -1,4 +1,3 @@
-use crate::publisher::Publisher;
 use futures_util::future::join_all;
 use serde::Deserialize;
 use tokio::fs::File;
@@ -51,14 +50,6 @@ fn default_period_ms() -> u32 {
 fn default_port() -> u16 {
     9000
 }
-
-impl StreamConfig{
-    pub fn get_publisher(&self)-> Publisher{
-        todo!()
-    }
-}
-
-
 
 pub async fn create_file_buffers(data_root: &str) -> Vec<BufReader<File>> {
     let future_buffers: Vec<_> = join_all(recurs_get_files(data_root))

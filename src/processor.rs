@@ -1,10 +1,10 @@
 pub mod ndwprocessor;
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 type ProcKey<T> = <T as Record>::Key;
 
 pub trait Processor {
-    type Model: Record + Send + Sync;
+    type Model: Record + Send + Sync + Display;
     fn parse(input_line: &str) -> (ProcKey<Self::Model>, Self::Model) {
         let model = Self::Model::parse(input_line);
         (model.get_key(), model)
@@ -15,8 +15,8 @@ pub trait Processor {
 }
 
 pub trait Record {
-    type Key: Ord + Send + Sync;
-    type Data: Send + Sync;
+    type Key: Ord + Send + Sync + Display;
+    type Data: Send + Sync + Display;
 
     fn parse(input: &str) -> Self;
     fn insert_current_time(self) -> Self;
