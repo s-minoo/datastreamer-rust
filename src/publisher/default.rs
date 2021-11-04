@@ -70,6 +70,7 @@ impl Publisher for PeriodicPublisher {
 ///
 pub struct ConstantPublisher;
 
+
 #[async_trait]
 impl Publisher for ConstantPublisher {
 
