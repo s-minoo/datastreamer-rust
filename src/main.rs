@@ -7,7 +7,7 @@ use std::pin::Pin;
 use crate::{
     processor::ndwprocessor::NDWProcessor,
     publisher::{
-        constant::{ConstantPublisher, PeriodicPublisher},
+        default::{ConstantPublisher, PeriodicPublisher},
         start_stream,
     },
     util::Config,
@@ -38,17 +38,13 @@ async fn main() -> Result<()> {
         .into_iter()
         .map(move |config| -> Pin<Box<dyn Future<Output = Result<()>>>> {
             match config.mode {
-                util::Mode::Constant => Box::pin(start_stream(
+                util::Mode::Constant => Box::pin(start_stream::<NDWProcessor, _>(
                     config,
-                    &ConstantPublisher {
-                        processor: NDWProcessor,
-                    },
+                    &ConstantPublisher
                 )),
-                util::Mode::Periodic => Box::pin(start_stream(
+                util::Mode::Periodic => Box::pin(start_stream::<NDWProcessor, _>(
                     config,
-                    &PeriodicPublisher {
-                        processor: NDWProcessor,
-                    },
+                    &PeriodicPublisher
                 )),
             }
         })

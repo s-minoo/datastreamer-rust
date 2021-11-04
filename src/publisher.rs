@@ -23,25 +23,27 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 use tokio_tungstenite::tungstenite::{Message, Result};
 use tokio_tungstenite::{accept_async, tungstenite::Error};
-pub mod constant;
+
+
+pub mod default;
 
 type SharedData<F> = Arc<RwLock<GroupedData<F>>>;
 type DataKey<P> = <<P as Processor>::Model as Record>::Key;
 type Data<P> = <P as Processor>::Model;
 type GroupedData<F> = HashMap<DataKey<F>, Vec<Data<F>>>;
-type Proc<Pub> = <Pub as Publisher>::Processor;
 
 
 
 /// Starts a TCP stream for the given stream configuration.
 ///
-/// Each new web socekts will be handled in their own tokio async threads.
-pub async fn start_stream<Pub: 'static>(
+/// Each new web sockets will be handled in their own tokio async threads.
+pub async fn start_stream<Proc: 'static, Pub: 'static>(
     config_struct: StreamConfig,
     publisher: &'static Pub,
 ) -> Result<()>
 where
     Pub: Publisher + Send + Sync,
+    Proc: Processor + Send + Sync, 
 {
     let addr = format!("{}:{}", config_struct.ip, config_struct.port);
     let data_root = config_struct.data_folder.unwrap();
@@ -49,7 +51,7 @@ where
         "For connection: {}:{}, reading files from the given data root directory: {}",
         config_struct.ip, config_struct.port, data_root);
 
-    let data = read_file_in_mem::<Proc<Pub>>(data_root).await?;
+    let data = read_file_in_mem::<Proc>(data_root).await?;
     info!("Finished reading and grouping data: {}", data_root);
 
 
@@ -64,7 +66,7 @@ where
 
         let shared_data = shared_data.clone();
         info!("Peer address: {}", peer);
-        tokio::spawn(accept_connection(peer, stream, shared_data, publisher));
+        tokio::spawn(accept_connection::<Proc, _>(peer, stream, shared_data, publisher));
     }
 
     Ok(())
@@ -115,15 +117,16 @@ where
 
 /// Accepts the incoming client connection and handle it for 
 /// data streaming. 
-async fn accept_connection<Pub: 'static>(
+async fn accept_connection<Proc, Pub: 'static>(
     peer: std::net::SocketAddr,
     stream: tokio::net::TcpStream,
-    data_lock: SharedData<Proc<Pub>>,
+    data_lock: SharedData<Proc>,
     publisher: &Pub,
 ) where
+    Proc: Processor, 
     Pub: Publisher,
 {
-    if let Err(e) = handle_connection(peer, stream, data_lock, publisher).await {
+    if let Err(e) = handle_connection::<Proc, _>(peer, stream, data_lock, publisher).await {
         match e {
             Error::ConnectionClosed | Error::Protocol(_) | Error::Utf8 => (),
             err => error!("Error processing connection: {}", err),
@@ -137,32 +140,33 @@ async fn accept_connection<Pub: 'static>(
 /// as defined by the [`Publisher`]'s implementations.
 /// 
 /// [`Publisher`]: crate::publisher::Publisher 
-async fn handle_connection<Pub>(
+async fn handle_connection<Proc, Pub>(
     peer: SocketAddr,
     stream: TcpStream,
-    data_lock: SharedData<Proc<Pub>>,
+    data_lock: SharedData<Proc>,
     _publisher: &Pub,
 ) -> Result<()>
 where
+    Proc: Processor, 
     Pub: Publisher,
 {
     let ws_stream = accept_async(stream).await.expect("Failed to accept");
     info!("New WebSocket connection: {}", peer);
     let (ws_sender, _) = ws_stream.split();
-    <Pub as Publisher>::publish_data::<Proc<Pub>>(data_lock, ws_sender).await?;
+    <Pub as Publisher>::publish_data::<Proc>(data_lock, ws_sender).await?;
     Ok(())
 }
 
 /// Publishes data through a websocket connection.
 ///
 /// The behaviour of the data stream (i.e. stream-rate, delays) will be defined 
-/// by the underlying implementations of this trait. The given [`Processor`] is 
-/// used to define the type of data being published.
+/// by the underlying implementations of this trait. 
 ///
-/// [`Processor`]: Publisher::Processor
 #[async_trait]
 pub trait Publisher {
-    type Processor: Processor;
+
+
+    /// Publishes the given data through a websocket. 
     async fn publish_data<F>(
         data_lock: SharedData<F>,
         mut ws_sender: SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,

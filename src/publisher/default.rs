@@ -1,3 +1,15 @@
+//!
+//! This module contains default implementations of the 
+//! [`Publisher`] trait.
+//!
+//! Currently, there are two types of publishers: [Constant] and [Periodic].
+//! They define the stream rate at which the data is
+//! published through the websocket. 
+//!
+//!
+//! [`Publisher`]: super::Publisher 
+//! [Constant]: ConstantPublisher
+//! [Periodic]: PeriodicPublisher
 use super::Publisher;
 
 use crate::processor::Processor;
@@ -13,12 +25,17 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::Result;
 
 use super::SharedData;
-pub struct PeriodicPublisher<T> {
-    pub processor: T,
-}
+
+/// Publishes data at a periodic rate. 
+///
+/// For example, the data will be published at a 
+/// high rate of 14000 messages/s every 10 seconds.  
+/// A low constant rate of 400 messages/s are published during the 
+/// 10 seconds downtime. 
+///
+pub struct PeriodicPublisher;
 #[async_trait]
-impl<T: Processor> Publisher for PeriodicPublisher<T> {
-    type Processor = T;
+impl Publisher for PeriodicPublisher {
 
     async fn publish_data<F>(
         data_lock: SharedData<F>,
@@ -48,13 +65,13 @@ impl<T: Processor> Publisher for PeriodicPublisher<T> {
     }
 }
 
-pub struct ConstantPublisher<P: Processor> {
-    pub processor: P,
-}
+
+/// Publishes the data at a constant rate (e.g. 400 messages/sec)
+///
+pub struct ConstantPublisher;
 
 #[async_trait]
-impl<T: Processor> Publisher for ConstantPublisher<T> {
-    type Processor = T;
+impl Publisher for ConstantPublisher {
 
     async fn publish_data<F>(
         data_lock: SharedData<F>,
