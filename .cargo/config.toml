@@ -1,0 +1,5 @@
+[alias]
+
+devrun ="run --bin datastreamer"
+devfix ="fix --allow-dirty"
+devdoc ="doc --document-private-items"
