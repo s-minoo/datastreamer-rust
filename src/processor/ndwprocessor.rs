@@ -47,7 +47,7 @@ impl Record for NDWModel {
             .unwrap()
             .as_millis();
         let body = format!(
-            r#"{}, "timestamp": {} }} "#,
+            r#"{}, "current_timestamp": {} }} "#,
             self.message[..self.message.len() - 1].to_string(),
             current_time_ms.to_string()
         );
@@ -55,6 +55,10 @@ impl Record for NDWModel {
             timestamp: self.timestamp,
             message: body,
         }
+    }
+
+    fn get_timestamp(&self) -> Option<NaiveDateTime> {
+        Some(self.timestamp)
     }
 }
 

@@ -8,6 +8,8 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::{collections::HashMap, fmt::Display};
 
+use chrono::NaiveDateTime;
+
 type ProcKey<T> = <T as Record>::Key;
 
 /// Processes the string input and deserializes them
@@ -38,6 +40,7 @@ pub trait Record {
     type Data: Send + Sync + Display + Debug + Clone;
 
     fn parse(input: &str) -> Self;
+    fn get_timestamp(&self) -> Option<NaiveDateTime>;
     fn insert_current_time(&self) -> Self;
     fn get_key(&self) -> Self::Key;
     fn get_data(&self) -> &Self::Data;

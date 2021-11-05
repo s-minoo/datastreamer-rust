@@ -38,12 +38,14 @@ async fn main() -> Result<()> {
         .into_iter()
         .map(move |config| -> Pin<Box<dyn Future<Output = Result<()>>>> {
             match config.mode {
-                util::Mode::Constant => {
-                    Box::pin(start_stream::<NDWProcessor, _>(config, &ConstantPublisher))
-                }
-                util::Mode::Periodic => {
-                    Box::pin(start_stream::<NDWProcessor, _>(config, &PeriodicPublisher))
-                }
+                util::Mode::Constant => Box::pin(start_stream::<NDWProcessor, _>(
+                    config,
+                    &ConstantPublisher { data_bloat: 1 },
+                )),
+                util::Mode::Periodic => Box::pin(start_stream::<NDWProcessor, _>(
+                    config,
+                    &PeriodicPublisher { data_bloat: 1 },
+                )),
             }
         })
         .collect();
