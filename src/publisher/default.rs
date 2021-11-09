@@ -19,7 +19,6 @@ use chrono::Timelike;
 use futures_util::stream::SplitSink;
 use futures_util::SinkExt;
 use itertools::Itertools;
-use lazy_static::lazy_static;
 use log::debug;
 use metered::{measure, HitCount, Throughput};
 
@@ -42,12 +41,14 @@ use super::SharedData;
 /// 10 seconds downtime.
 ///
 pub struct PeriodicPublisher {
-    pub config:StreamConfig,
+    pub config: StreamConfig,
+    pub metrics: Metrics,
 }
 
 #[async_trait]
 impl Publisher for PeriodicPublisher {
-    async fn publish_data<F>(&self, 
+    async fn publish_data<F>(
+        &self,
         data_lock: SharedData<F>,
         mut ws_sender: SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
     ) -> Result<()>
@@ -74,108 +75,117 @@ impl Publisher for PeriodicPublisher {
                     //Every 10 minute of data, publish a burst of data
                     if minute_time % 10 == 0 {
                         debug!("Starting burst publishing for timestamp: {:?}", time_stamp);
-                        Self::publish_burst(bucket_data, &mut ws_sender, self.config.volume).await?;
+                        self.publish_burst(bucket_data, &mut ws_sender).await?;
                         debug!("Finished burst publishing for timestamp: {:?}", time_stamp);
                     } else {
-                        publish_constant(
+                        self.publish_constant(
                             bucket_data,
                             &mut ws_sender,
                             &mut tick_100ms,
                             &mut tick_5ms,
-                            self.config.volume,
                         )
                         .await?;
                     }
                 } else {
+                    // If the records themselves are not chronologically ordered,
+                    // we will use machine time for data burst instead
                     select! {
                         biased;
                         _ = minute_interval.tick() => {
-                            Self::publish_burst(bucket_data, &mut ws_sender,self.config.volume).await?;
+                            self.publish_burst(bucket_data, &mut ws_sender).await?;
                         }
                         _ = async {} =>{
-                            publish_constant(bucket_data, &mut ws_sender, &mut tick_100ms, &mut tick_5ms, self.config.volume).await?;
+                            self.publish_constant(bucket_data, &mut ws_sender, &mut tick_100ms, &mut tick_5ms).await?;
                         }
                     }
                 }
                 tick_second.tick().await;
+                debug!(
+                    "The throughput for this socket is: {:?}",
+                    &self.metrics.throughput
+                );
                 debug!("One second elapsed!");
             }
             // Drop read lock on data;
         }
         debug!("Finished sending data");
-        measure!(&METRICS.throughput, {
-            ws_sender.send(Message::Close(None)).await?;
-        });
 
         debug!(
             "The throughput for this socket is: {:?}",
-            METRICS.throughput
+            &self.metrics.throughput
         );
-        debug!("{}", serde_yaml::to_string(&METRICS.throughput).unwrap());
+        debug!(
+            "{}",
+            serde_yaml::to_string(&self.metrics.throughput).unwrap()
+        );
         Ok(())
     }
 }
 
 impl PeriodicPublisher {
     async fn publish_burst<T: Record>(
+        &self,
         data: &Vec<T>,
         ws_sender: &mut SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
-        volume: u32,
     ) -> Result<()> {
-
+        let volume = self.config.volume;
         // no delays since its a burst publish
         for _batch in 0..9 {
             for record in data {
                 for _iteration in 0..volume {
                     let current_rec = record.insert_current_time();
-                    ws_sender
-                        .send(Message::Text(format!("{}", current_rec.get_data())))
-                        .await?;
+
+                    measure!(
+                        &self.metrics.throughput,
+                        ws_sender
+                            .send(Message::Text(format!("{}", current_rec.get_data())))
+                            .await?
+                    );
                 }
             }
         }
 
-        
+        Ok(())
+    }
+    async fn publish_constant<T: Record>(
+        &self,
+        data: &Vec<T>,
+        ws_sender: &mut SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
+        tick_100ms: &mut Interval,
+        tick_5ms: &mut Interval,
+    ) -> Result<()> {
+        for _batch in 0..9 {
+            // Lasts 100ms
+            for record in data {
+                //Last 5ms
+                let current_rec = record.insert_current_time();
+                measure!(
+                    &self.metrics.throughput,
+                    ws_sender
+                        .send(Message::Text(format!("{}", current_rec.get_data())))
+                        .await?
+                );
+                tick_5ms.tick().await;
+            }
+            tick_100ms.tick().await;
+        }
+
         Ok(())
     }
 }
 
-async fn publish_constant<T: Record>(
-    data: &Vec<T>,
-    ws_sender: &mut SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
-    tick_100ms: &mut Interval,
-    tick_5ms: &mut Interval,
-    volume: u32,
-) -> Result<()> {
-
-    for _batch in 0..9 {
-        // Lasts 100ms
-        for record in data {
-            //Last 5ms
-            for _iteration in 0..volume {
-                let current_rec = record.insert_current_time();
-                ws_sender
-                    .send(Message::Text(format!("{}", current_rec.get_data())))
-                    .await?;
-            }
-            tick_5ms.tick().await;
-        }
-        tick_100ms.tick().await;
-    }
-
-    Ok(())
-}
 ///
 /// Publishes the data at a constant rate (e.g. 400 messages/sec)
 ///
 pub struct ConstantPublisher {
-    pub config:StreamConfig
+    pub config: StreamConfig,
+    pub metrics: Metrics,
 }
-
 
 #[async_trait]
 impl Publisher for ConstantPublisher {
-    async fn publish_data<F>(&self, 
+    async fn publish_data<F>(
+        &self,
         data_lock: SharedData<F>,
         mut ws_sender: SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
     ) -> Result<()>
@@ -187,6 +197,7 @@ impl Publisher for ConstantPublisher {
             let r_lock = data_lock.read().await;
             let data = &*r_lock;
             let (mut tick_second, mut tick_100ms, mut tick_5ms) = create_tickers();
+            let volume = self.config.volume;
 
             for key in data.keys().sorted() {
                 // Last 1 second
@@ -194,14 +205,23 @@ impl Publisher for ConstantPublisher {
                     // Lasts 100ms
                     for record in data.get(key).unwrap() {
                         // Last 5ms
-                        let current_rec = record.insert_current_time();
-                        ws_sender
-                            .send(Message::Text(format!("{}", current_rec.get_data())))
-                            .await?;
+                        for _iter in 0..volume {
+                            let current_rec = record.insert_current_time();
+                            measure!(
+                                &self.metrics.throughput,
+                                ws_sender
+                                    .send(Message::Text(format!("{}", current_rec.get_data())))
+                                    .await?
+                            );
+                        }
                         tick_5ms.tick().await;
                     }
                     tick_100ms.tick().await;
                 }
+                debug!(
+                    "The throughput for this socket is: {:?}",
+                    &self.metrics.throughput
+                );
                 tick_second.tick().await;
                 debug!("One second elapsed!");
             }
@@ -210,15 +230,17 @@ impl Publisher for ConstantPublisher {
         }
 
         debug!("Finished sending data");
-        measure!(&METRICS.throughput, {
-            ws_sender.send(Message::Close(None)).await?;
-        });
+        ws_sender.send(Message::Close(None)).await?;
 
         debug!(
             "The throughput for this socket is: {:?}",
-            METRICS.throughput
+            &self.metrics.throughput
         );
-        debug!("{}", serde_yaml::to_string(&METRICS.throughput).unwrap());
+        debug!(
+            "{}",
+            serde_yaml::to_string(&self.metrics.throughput).unwrap()
+        );
+
         Ok(())
     }
 }
@@ -240,10 +262,4 @@ fn create_tickers() -> (Interval, Interval, Interval) {
 pub struct Metrics {
     pub throughput: Throughput,
     pub hitcount: HitCount,
-}
-
-lazy_static! {
-    static ref METRICS: Metrics = Metrics {
-        ..Default::default()
-    };
 }

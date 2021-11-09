@@ -167,7 +167,8 @@ where
 #[async_trait]
 pub trait Publisher {
     /// Publishes the given data through a websocket.
-    async fn publish_data<F>(&self,
+    async fn publish_data<F>(
+        &self,
         data_lock: SharedData<F>,
         mut ws_sender: SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
     ) -> Result<()>

@@ -29,7 +29,7 @@ pub struct StreamConfig {
     #[serde(default = "default_port")]
     pub port: u16,
     pub mode: Mode,
-    #[serde(default="default_volume")]
+    #[serde(default = "default_volume")]
     pub volume: u32,
     #[serde(default = "default_interval_ms")]
     pub interval_ms: u32,

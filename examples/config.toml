@@ -2,12 +2,13 @@
 ip = "localhost"
 port = 9000
 mode = "Constant"
-volume = 2
+volume = 1
 data_folder = "./data/flow"
 
 [[streamconfigs]]
 ip = "localhost"
 port = 9001
 mode = "Periodic"
+volume = 20
 data_folder = "./data/speed"
 
