@@ -65,16 +65,15 @@ async fn main() -> Result<()> {
         let future:Pin<Box<dyn Future<Output=Result<()>>>> = match config.mode {
             util::Mode::Constant =>
             {
-                let publi = Box::new(ConstantPublisher{volume:config.volume});
+                let publi = Box::new(ConstantPublisher{config:config.clone()});
                 let publi:&'static ConstantPublisher = Box::leak(publi);
-                Box::pin(start_stream::<NDWProcessor, _>(config,publi))
+                Box::pin(start_stream::<NDWProcessor, _>(config.clone(),publi))
             }
             ,
             util::Mode::Periodic =>{
-                let publi = Box::new(PeriodicPublisher{volume:config.volume});
+                let publi = Box::new(PeriodicPublisher{config:config.clone()});
                 let publi:&'static PeriodicPublisher = Box::leak(publi);
-                Box::pin(start_stream::<NDWProcessor, _>(config, publi))
-
+                Box::pin(start_stream::<NDWProcessor, _>(config.clone(), publi))
             } 
         };
         stream_futures.push(future);

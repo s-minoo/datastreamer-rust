@@ -2,6 +2,7 @@
 ip = "localhost"
 port = 9000
 mode = "Constant"
+volume = 2
 data_folder = "./data/flow"
 
 [[streamconfigs]]

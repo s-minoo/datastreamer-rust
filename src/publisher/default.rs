@@ -11,14 +11,13 @@
 //! [Constant]: ConstantPublisher
 //! [Periodic]: PeriodicPublisher
 use super::Publisher;
-
 use crate::processor::Processor;
 use crate::processor::Record;
 use crate::util::StreamConfig;
 use async_trait::async_trait;
 use chrono::Timelike;
 use futures_util::stream::SplitSink;
-use futures_util::{SinkExt};
+use futures_util::SinkExt;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use log::debug;
@@ -43,12 +42,12 @@ use super::SharedData;
 /// 10 seconds downtime.
 ///
 pub struct PeriodicPublisher {
-    pub volume: u32,
+    pub config:StreamConfig,
 }
 
 #[async_trait]
 impl Publisher for PeriodicPublisher {
-    async fn publish_data<F>(
+    async fn publish_data<F>(&self, 
         data_lock: SharedData<F>,
         mut ws_sender: SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
     ) -> Result<()>
@@ -75,7 +74,7 @@ impl Publisher for PeriodicPublisher {
                     //Every 10 minute of data, publish a burst of data
                     if minute_time % 10 == 0 {
                         debug!("Starting burst publishing for timestamp: {:?}", time_stamp);
-                        Self::publish_burst(bucket_data, &mut ws_sender, None).await?;
+                        Self::publish_burst(bucket_data, &mut ws_sender, self.config.volume).await?;
                         debug!("Finished burst publishing for timestamp: {:?}", time_stamp);
                     } else {
                         publish_constant(
@@ -83,7 +82,7 @@ impl Publisher for PeriodicPublisher {
                             &mut ws_sender,
                             &mut tick_100ms,
                             &mut tick_5ms,
-                            None,
+                            self.config.volume,
                         )
                         .await?;
                     }
@@ -91,10 +90,10 @@ impl Publisher for PeriodicPublisher {
                     select! {
                         biased;
                         _ = minute_interval.tick() => {
-                            Self::publish_burst(bucket_data, &mut ws_sender,None).await?;
+                            Self::publish_burst(bucket_data, &mut ws_sender,self.config.volume).await?;
                         }
                         _ = async {} =>{
-                            publish_constant(bucket_data, &mut ws_sender, &mut tick_100ms, &mut tick_5ms, None).await?;
+                            publish_constant(bucket_data, &mut ws_sender, &mut tick_100ms, &mut tick_5ms, self.config.volume).await?;
                         }
                     }
                 }
@@ -121,12 +120,8 @@ impl PeriodicPublisher {
     async fn publish_burst<T: Record>(
         data: &Vec<T>,
         ws_sender: &mut SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
-        volume: Option<u32>,
+        volume: u32,
     ) -> Result<()> {
-        let volume = match volume {
-            Some(val) => val,
-            None => 1,
-        };
 
         // no delays since its a burst publish
         for _batch in 0..9 {
@@ -150,12 +145,8 @@ async fn publish_constant<T: Record>(
     ws_sender: &mut SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
     tick_100ms: &mut Interval,
     tick_5ms: &mut Interval,
-    volume: Option<u32>,
+    volume: u32,
 ) -> Result<()> {
-    let volume = match volume {
-        Some(val) => val,
-        None => 1,
-    };
 
     for _batch in 0..9 {
         // Lasts 100ms
@@ -178,21 +169,13 @@ async fn publish_constant<T: Record>(
 /// Publishes the data at a constant rate (e.g. 400 messages/sec)
 ///
 pub struct ConstantPublisher {
-    pub volume: u32,
+    pub config:StreamConfig
 }
 
-impl ConstantPublisher{
-
-    pub fn new(config: &StreamConfig) -> Self {
-        ConstantPublisher{
-            volume: config.volume.clone()
-        }
-    }
-}
 
 #[async_trait]
 impl Publisher for ConstantPublisher {
-    async fn publish_data<F>(
+    async fn publish_data<F>(&self, 
         data_lock: SharedData<F>,
         mut ws_sender: SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
     ) -> Result<()>

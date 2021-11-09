@@ -146,7 +146,7 @@ async fn handle_connection<Proc, Pub>(
     peer: SocketAddr,
     stream: TcpStream,
     data_lock: SharedData<Proc>,
-    _publisher: &Pub,
+    publisher: &Pub,
 ) -> Result<()>
 where
     Proc: Processor,
@@ -155,7 +155,7 @@ where
     let ws_stream = accept_async(stream).await.expect("Failed to accept");
     info!("New WebSocket connection: {}", peer);
     let (ws_sender, _) = ws_stream.split();
-    <Pub as Publisher>::publish_data::<Proc>(data_lock, ws_sender).await?;
+    publisher.publish_data::<Proc>(data_lock, ws_sender).await?;
     Ok(())
 }
 
@@ -167,7 +167,7 @@ where
 #[async_trait]
 pub trait Publisher {
     /// Publishes the given data through a websocket.
-    async fn publish_data<F>(
+    async fn publish_data<F>(&self,
         data_lock: SharedData<F>,
         mut ws_sender: SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
     ) -> Result<()>
