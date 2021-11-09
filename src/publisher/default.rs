@@ -14,11 +14,11 @@ use super::Publisher;
 
 use crate::processor::Processor;
 use crate::processor::Record;
+use crate::util::StreamConfig;
 use async_trait::async_trait;
 use chrono::Timelike;
-use futures_util::stream;
 use futures_util::stream::SplitSink;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{SinkExt};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use log::debug;
@@ -43,7 +43,7 @@ use super::SharedData;
 /// 10 seconds downtime.
 ///
 pub struct PeriodicPublisher {
-    pub data_bloat: u32,
+    pub volume: u32,
 }
 
 #[async_trait]
@@ -178,7 +178,16 @@ async fn publish_constant<T: Record>(
 /// Publishes the data at a constant rate (e.g. 400 messages/sec)
 ///
 pub struct ConstantPublisher {
-    pub data_bloat: u32,
+    pub volume: u32,
+}
+
+impl ConstantPublisher{
+
+    pub fn new(config: &StreamConfig) -> Self {
+        ConstantPublisher{
+            volume: config.volume.clone()
+        }
+    }
 }
 
 #[async_trait]

@@ -1,5 +1,5 @@
 [alias]
 
-devrun ="run --bin datastreamer"
+devrun ="run --bin datastreamer -- examples/config.toml"
 devfix ="fix --allow-dirty"
 devdoc ="doc --document-private-items"

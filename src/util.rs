@@ -4,13 +4,13 @@ use tokio::fs::File;
 use tokio::io::BufReader;
 use walkdir::WalkDir;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub enum Mode {
     Constant,
     Periodic,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub enum OutputFmt {
     JSON,
     XML,
@@ -23,12 +23,14 @@ pub struct Config {
     pub log_level: Option<&'static str>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct StreamConfig {
     pub ip: String,
     #[serde(default = "default_port")]
     pub port: u16,
     pub mode: Mode,
+    #[serde(default="default_volume")]
+    pub volume: u32,
     #[serde(default = "default_interval_ms")]
     pub interval_ms: u32,
     #[serde(default = "default_period_ms")]
@@ -38,6 +40,9 @@ pub struct StreamConfig {
     pub data_folder: Option<&'static str>,
 }
 
+fn default_volume() -> u32 {
+    1
+}
 fn default_interval_ms() -> u32 {
     400
 }
