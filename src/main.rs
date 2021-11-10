@@ -3,7 +3,7 @@ pub mod publisher;
 pub mod util;
 
 use crate::{
-    processor::ndwprocessor::NDWProcessor,
+    processor::ndwprocessor::{NDWFlowModel, NDWProcessor, NDWSpeedModel},
     publisher::{
         default::{ConstantPublisher, Metrics, PeriodicPublisher},
         start_stream,
@@ -14,7 +14,7 @@ use clap::{App, Arg};
 use env_logger::Env;
 use futures_util::{future::join_all, Future};
 use log::{debug, info};
-use std::pin::Pin;
+use std::{marker::PhantomData, pin::Pin};
 use tokio_tungstenite::tungstenite::{self, Result};
 
 #[tokio::main]
@@ -64,7 +64,10 @@ async fn main() -> Result<()> {
                     metrics,
                 });
                 let publi: &'static ConstantPublisher = Box::leak(publi);
-                Box::pin(start_stream::<NDWProcessor, _>(config.clone(), publi))
+                let proc: &'static NDWProcessor<NDWSpeedModel> = Box::leak(Box::new(
+                    NDWProcessor::new(util::DataFmt::JSON, util::DataFmt::JSON),
+                ));
+                Box::pin(start_stream(config.clone(), publi, proc))
             }
             util::Mode::Periodic => {
                 let publi = Box::new(PeriodicPublisher {
@@ -72,7 +75,10 @@ async fn main() -> Result<()> {
                     metrics,
                 });
                 let publi: &'static PeriodicPublisher = Box::leak(publi);
-                Box::pin(start_stream::<NDWProcessor, _>(config.clone(), publi))
+                let proc: &'static NDWProcessor<NDWSpeedModel> = Box::leak(Box::new(
+                    NDWProcessor::new(util::DataFmt::JSON, util::DataFmt::JSON),
+                ));
+                Box::pin(start_stream(config.clone(), publi, proc))
             }
         };
         stream_futures.push(future);

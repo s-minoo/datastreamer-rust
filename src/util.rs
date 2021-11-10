@@ -4,14 +4,14 @@ use tokio::fs::File;
 use tokio::io::BufReader;
 use walkdir::WalkDir;
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Copy, Clone)]
 pub enum Mode {
     Constant,
     Periodic,
 }
 
-#[derive(Debug, Deserialize, Clone)]
-pub enum OutputFmt {
+#[derive(Debug, Deserialize, Copy, Clone)]
+pub enum DataFmt {
     JSON,
     XML,
     CSV,
@@ -36,7 +36,7 @@ pub struct StreamConfig {
     #[serde(default = "default_period_ms")]
     pub calm_period_ms: u32,
     #[serde(default = "default_output_fmt")]
-    pub output_format: OutputFmt,
+    pub output_format: DataFmt,
     pub data_folder: Option<&'static str>,
 }
 
@@ -46,8 +46,8 @@ fn default_volume() -> u32 {
 fn default_interval_ms() -> u32 {
     400
 }
-fn default_output_fmt() -> OutputFmt {
-    OutputFmt::JSON
+fn default_output_fmt() -> DataFmt {
+    DataFmt::JSON
 }
 fn default_period_ms() -> u32 {
     400

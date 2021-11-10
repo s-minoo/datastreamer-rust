@@ -37,6 +37,7 @@ type GroupedData<F> = HashMap<DataKey<F>, Vec<Data<F>>>;
 pub async fn start_stream<Proc: 'static, Pub: 'static>(
     config_struct: StreamConfig,
     publisher: &'static Pub,
+    proc: &'static Proc,
 ) -> Result<()>
 where
     Pub: Publisher + Send + Sync,
@@ -49,7 +50,7 @@ where
         config_struct.ip, config_struct.port, data_root
     );
 
-    let data = read_file_in_mem::<Proc>(data_root).await?;
+    let data = read_file_in_mem(data_root, proc).await?;
     info!("Finished reading and grouping data: {}", data_root);
 
     let shared_data = Arc::new(RwLock::new(data));
@@ -86,7 +87,10 @@ where
 /// [records]: crate::processor::Record
 /// [key]: crate::processor::Record::Key
 /// [`Processor`]: crate::processor::Processor
-async fn read_file_in_mem<F: 'static>(data_root: &str) -> Result<HashMap<DataKey<F>, Vec<Data<F>>>>
+async fn read_file_in_mem<F: 'static>(
+    data_root: &str,
+    proc: &'static F,
+) -> Result<HashMap<DataKey<F>, Vec<Data<F>>>>
 where
     F: Processor,
 {
@@ -100,7 +104,7 @@ where
         let mut lines = bf.lines();
         let mut file_data = Vec::new();
         while let Some(line) = lines.next_line().await? {
-            let line = match tokio::task::spawn_blocking(move || F::parse(line.as_str())).await {
+            let line = match tokio::task::spawn_blocking(move || proc.parse(line.as_str())).await {
                 Ok(it) => it,
                 Err(err) => return Err(Error::Io(StdError::new(StdErrorKind::Other, err))),
             };

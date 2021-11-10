@@ -131,7 +131,7 @@ impl PeriodicPublisher {
         let volume = self.config.volume;
         // no delays since its a burst publish
         for _batch in 0..9 {
-            for record in data {
+            for  record in data {
                 for _iteration in 0..volume {
                     let current_rec = record.insert_current_time();
 
