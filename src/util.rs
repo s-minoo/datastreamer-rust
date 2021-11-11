@@ -35,19 +35,20 @@ pub struct StreamConfig {
     pub interval_ms: u32,
     #[serde(default = "default_period_ms")]
     pub calm_period_ms: u32,
-    #[serde(default = "default_output_fmt")]
     pub output_format: DataFmt,
+    #[serde(default = "default_input_fmt")]
+    pub input_format: DataFmt,
     pub data_folder: Option<&'static str>,
 }
 
+fn default_input_fmt() -> DataFmt {
+    DataFmt::JSON
+}
 fn default_volume() -> u32 {
     1
 }
 fn default_interval_ms() -> u32 {
     400
-}
-fn default_output_fmt() -> DataFmt {
-    DataFmt::JSON
 }
 fn default_period_ms() -> u32 {
     400

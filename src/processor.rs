@@ -11,6 +11,7 @@ use std::{collections::HashMap, fmt::Display};
 use crate::util::DataFmt;
 use chrono::NaiveDateTime;
 
+
 type ProcKey<T> = <T as Record>::Key;
 
 /// Processes the string input and deserializes them
@@ -43,7 +44,7 @@ pub trait Record {
     type Key: Ord + Send + Sync + Hash + Display + Debug;
     type Data: Send + Sync + Display + Debug + Clone;
 
-    fn deserialize(input: String, output_fmt:DataFmt) -> Self;
+    fn deserialize(input: String, output_fmt: DataFmt) -> Self;
     fn serialize(&self, fmt: &DataFmt) -> String;
     fn get_timestamp(&self) -> Option<NaiveDateTime>;
     fn insert_current_time(&self) -> Self;

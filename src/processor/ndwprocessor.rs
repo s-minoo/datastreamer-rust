@@ -1,73 +1,102 @@
 use chrono::NaiveDateTime;
 use itertools::Itertools;
-use lazy_static::lazy_static;
-use regex::Regex;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+
+use log::debug;
+
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    fmt::Display,
     marker::PhantomData,
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use serde::de;
+use std::fmt;
 use crate::util::DataFmt;
 
 use super::{Processor, Record};
-lazy_static! {
-    static ref TIMESTAMP_REGEX: Regex =
-        Regex::new(r#"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d*"#).unwrap();
+
+struct NaiveDateTimeVisitor;
+
+impl<'de> de::Visitor<'de> for NaiveDateTimeVisitor {
+    type Value = NaiveDateTime;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(formatter, "a string represents chrono::NaiveDateTime")
+    }
+
+    fn visit_str<E>(self, s: &str) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        match NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S.%f") {
+            Ok(t) => Ok(t),
+            Err(_) => Err(de::Error::invalid_value(de::Unexpected::Str(s), &self)),
+        }
+    }
 }
 
+fn from_timestamp<'de, D>(d: D) -> Result<NaiveDateTime, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    d.deserialize_str(NaiveDateTimeVisitor)
+}
+
+//Would love to use another struct containing common fields 
+//but will result in erros with the serialization crates 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct NDWCommon {
+pub struct NDWSpeedModel {
+    speed: f32,
+    #[serde(deserialize_with="from_timestamp")]
     timestamp: NaiveDateTime,
     #[serde(skip_deserializing)]
-    current_timestamp: u128, 
+    current_timestamp: u64,
     accuracy: u8,
     lat: f64,
     long: f64,
     num_lanes: u8,
-    #[serde(rename = "internalId" )]
+    #[serde(rename = "internalId")]
     internal_id: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct NDWSpeedModel {
-    speed: u16,
-    #[serde(flatten)]
-    common: NDWCommon,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NDWFlowModel {
     period: u8,
     flow: u16,
-    #[serde(flatten)]
-    common: NDWCommon,
-
+    #[serde(deserialize_with="from_timestamp")]
+    timestamp: NaiveDateTime,
+    #[serde(skip_deserializing)]
+    current_timestamp: u64,
+    accuracy: u8,
+    lat: f64,
+    long: f64,
+    num_lanes: u8,
+    #[serde(rename = "internalId")]
+    internal_id: String,
 }
 
-impl Model for NDWFlowModel{
-    fn update_timestamp(&mut self, timestamp_ms:u128 ) {
-        self.common.current_timestamp  = timestamp_ms; 
+impl Model for NDWFlowModel {
+    fn update_timestamp(&mut self, timestamp_ms: u128) {
+        self.current_timestamp = timestamp_ms as u64;
     }
 
-    fn get_timestamp(&self)->NaiveDateTime {
-        self.common.timestamp
+    fn get_timestamp(&self) -> NaiveDateTime {
+        self.timestamp
     }
 }
-impl Model for NDWSpeedModel{
-    fn update_timestamp(&mut self, timestamp_ms:u128 ) {
-        self.common.current_timestamp  = timestamp_ms; 
+impl Model for NDWSpeedModel {
+    fn update_timestamp(&mut self, timestamp_ms: u128) {
+        self.current_timestamp = timestamp_ms as u64;
     }
 
-    fn get_timestamp(&self)->NaiveDateTime {
-        self.common.timestamp
+    fn get_timestamp(&self) -> NaiveDateTime {
+        self.timestamp
     }
 }
-pub trait Model:Clone{
-    fn update_timestamp(&mut self, timestamp_ms:u128 );
-    fn get_timestamp(&self)->NaiveDateTime; 
+pub trait Model: Clone {
+    fn update_timestamp(&mut self, timestamp_ms: u128);
+    fn get_timestamp(&self) -> NaiveDateTime;
 }
 
 #[derive(Debug)]
@@ -83,10 +112,7 @@ impl<A: Model + Serialize + DeserializeOwned> Record for NDWModel<A> {
         let processed_input = NDWProcessor::<A>::preprocess_input(&input);
         let model = serde_json::from_str::<A>(&processed_input).unwrap();
 
-        NDWModel{
-            output_fmt,
-            model
-        }
+        NDWModel { output_fmt, model }
     }
 
     fn serialize(&self, fmt: &DataFmt) -> String {
@@ -97,7 +123,7 @@ impl<A: Model + Serialize + DeserializeOwned> Record for NDWModel<A> {
             DataFmt::CSV => {
                 let mut writer = csv::Writer::from_writer(vec![]);
                 writer.serialize(val).unwrap();
-                String::from_utf8(writer.into_inner().unwrap()).unwrap()
+                String::from_utf8(writer.into_inner().unwrap()).unwrap().replace(" ", "\n")
             }
         };
         return result;
@@ -115,7 +141,7 @@ impl<A: Model + Serialize + DeserializeOwned> Record for NDWModel<A> {
 
         let mut model = self.model.clone();
         model.update_timestamp(current_time_ms);
-        NDWModel{
+        NDWModel {
             output_fmt: self.output_fmt,
             model,
         }
@@ -130,7 +156,6 @@ impl<A: Model + Serialize + DeserializeOwned> Record for NDWModel<A> {
     }
 }
 
-
 pub struct NDWProcessor<A> {
     pub phantom: PhantomData<A>,
     input_fmt: DataFmt,
@@ -139,6 +164,7 @@ pub struct NDWProcessor<A> {
 
 impl<A: Model> NDWProcessor<A> {
     pub fn new(input_fmt: DataFmt, output_fmt: DataFmt) -> Self {
+        debug!("{:?}", output_fmt);
         NDWProcessor::<A> {
             input_fmt,
             output_fmt,
@@ -146,7 +172,7 @@ impl<A: Model> NDWProcessor<A> {
         }
     }
 
-    fn preprocess_input(input: &str) -> String{
+    fn preprocess_input(input: &str) -> String {
         //Same as the DataUtils method in data-stream-generator module of the
         //open stream processing benchmark (OSP benchmark)
         let splitted_line: Vec<_> = input.split("=").collect();
@@ -155,7 +181,7 @@ impl<A: Model> NDWProcessor<A> {
             splitted_line[1].trim().to_owned(),
         );
         let lane = Self::extract_lane(&key);
-        let message = format!("{{\"internalId\": \"{}\", {}", lane, &body[1..].trim());
+        let message = format!("{{\"internalId\": \"{}\", {}", &lane[1..], &body[1..].trim());
         message
     }
 
@@ -168,7 +194,9 @@ impl<A: Model> NDWProcessor<A> {
     }
 }
 
-impl<A: Model + DeserializeOwned  + Serialize + Sync + Send + std::fmt::Debug> Processor for NDWProcessor<A> {
+impl<A: Model + DeserializeOwned + Serialize + Sync + Send + std::fmt::Debug> Processor
+    for NDWProcessor<A>
+{
     type Model = NDWModel<A>;
 
     fn group_output(
@@ -178,10 +206,10 @@ impl<A: Model + DeserializeOwned  + Serialize + Sync + Send + std::fmt::Debug> P
     }
 
     fn get_inputfmt(&self) -> &DataFmt {
-        &self.output_fmt
+        &self.input_fmt
     }
 
     fn get_outputfmt(&self) -> &DataFmt {
-        &self.input_fmt
+        &self.output_fmt
     }
 }

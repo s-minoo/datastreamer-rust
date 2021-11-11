@@ -3,6 +3,8 @@ ip = "localhost"
 port = 9000
 mode = "Constant"
 volume = 1
+input_format = "JSON"
+output_format = "XML"
 data_folder = "./data/flow"
 
 [[streamconfigs]]
@@ -10,5 +12,7 @@ ip = "localhost"
 port = 9001
 mode = "Periodic"
 volume = 20
+input_format = "JSON"
+output_format = "CSV"
 data_folder = "./data/speed"
 
