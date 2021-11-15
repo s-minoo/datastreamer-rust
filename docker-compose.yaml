@@ -1,0 +1,15 @@
+version: "3.9"  # optional since v1.27.0
+services:
+  data-streamer:
+    build: .
+    expose: 
+      - "9000"
+      - "9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - logvolume01:/usr/src/data-streamer/log/
+
+volumes:
+  logvolume01: 

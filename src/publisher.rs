@@ -183,10 +183,11 @@ pub trait Publisher {
         F: Processor;
 
     async fn get_writer(&self) -> Result<BufWriter<File>> {
+        std::fs::create_dir_all("log/")?;
         let file = OpenOptions::new()
             .append(true)
             .create(true)
-            .open(self.get_id())
+            .open(format!("log/{}", self.get_id()))
             .await?;
         Ok(BufWriter::new(file))
     }

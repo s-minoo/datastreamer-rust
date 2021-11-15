@@ -8,6 +8,9 @@ edition = "2018"
 [profile.release]
 opt-level = 3
 
+[profile.dev]
+incremental = true
+
 [dependencies]
 serde_yaml = "0.8"
 metered= "0.8"
