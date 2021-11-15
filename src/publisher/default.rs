@@ -20,8 +20,12 @@ use futures_util::stream::SplitSink;
 use futures_util::SinkExt;
 use itertools::Itertools;
 use log::debug;
+use log::info;
 use metered::{measure, HitCount, Throughput};
 
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
+use tokio::io::BufWriter;
 use tokio::net::TcpStream;
 use tokio::select;
 use tokio::time;
@@ -55,11 +59,12 @@ impl Publisher for PeriodicPublisher {
     where
         F: Processor,
     {
+        let mut writer = self.get_writer().await?;
         {
             // Acquire read lock on data;
             let r_lock = data_lock.read().await;
             let data = &*r_lock;
-            let (mut tick_second, mut tick_100ms, mut tick_5ms) = create_tickers();
+            let (mut tick_5second, mut tick_second, mut tick_100ms, mut tick_5ms) = create_tickers();
 
             let mut minute_interval = time::interval(Duration::from_secs(60));
             minute_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -104,7 +109,21 @@ impl Publisher for PeriodicPublisher {
                     "The throughput for this socket is: {:?}",
                     &self.metrics.throughput
                 );
+                let val = format!("{}\n", serde_json::to_string(&self.metrics.throughput)
+                    .unwrap()
+                    .to_owned());
+                writer.write(val.as_bytes()).await?;
                 debug!("One second elapsed!");
+
+                select! {
+                    _ = tick_5second.tick() => {
+                        writer.flush().await?;
+                        info!("5 second elapsed, flushing metrics logs!");
+                    }
+                    _ = async {} => {
+                        continue
+                    }
+                };
             }
             // Drop read lock on data;
         }
@@ -114,11 +133,23 @@ impl Publisher for PeriodicPublisher {
             "The throughput for this socket is: {:?}",
             &self.metrics.throughput
         );
-        debug!(
-            "{}",
-            serde_yaml::to_string(&self.metrics.throughput).unwrap()
-        );
+
+        let val = serde_json::to_string(&self.metrics.throughput)
+            .unwrap()
+            .to_owned();
+        writer.write(val.as_bytes()).await?;
+        info!("Flushing metrics logs for the last time.");
+        writer.flush().await?;
+
         Ok(())
+    }
+
+    fn get_config(&self) -> &StreamConfig {
+        &self.config
+    }
+
+    fn get_metrics(&self) -> &Metrics {
+        &self.metrics
     }
 }
 
@@ -192,11 +223,12 @@ impl Publisher for ConstantPublisher {
     where
         F: Processor,
     {
+        let mut writer = self.get_writer().await?;
         {
             // Acquire read lock on data_lock
             let r_lock = data_lock.read().await;
             let data = &*r_lock;
-            let (mut tick_second, mut tick_100ms, mut tick_5ms) = create_tickers();
+            let (mut tick_5second, mut tick_second, mut tick_100ms, mut tick_5ms) = create_tickers();
             let volume = self.config.volume;
 
             for key in data.keys().sorted() {
@@ -224,6 +256,21 @@ impl Publisher for ConstantPublisher {
                 );
                 tick_second.tick().await;
                 debug!("One second elapsed!");
+
+                let val = format!("{}\n",serde_json::to_string(&self.metrics.throughput)
+                    .unwrap()
+                    .to_owned());
+                writer.write(val.as_bytes()).await?;
+
+                select! {
+                    _ = tick_5second.tick() => {
+                        writer.flush().await?;
+                        info!("5 second elapsed, flushing metrics logs!");
+                    }
+                    _ = async {} => {
+                        continue
+                    }
+                };
             }
 
             // Drop read lock on data_lock
@@ -236,26 +283,40 @@ impl Publisher for ConstantPublisher {
             "The throughput for this socket is: {:?}",
             &self.metrics.throughput
         );
-        debug!(
-            "{}",
-            serde_yaml::to_string(&self.metrics.throughput).unwrap()
-        );
+        let val = serde_json::to_string(&self.metrics.throughput)
+            .unwrap()
+            .to_owned();
+        writer.write(val.as_bytes()).await?;
+        info!("Flushing metrics logs for the last time.");
+        writer.flush().await?;
 
         Ok(())
     }
+
+    fn get_config(&self) -> &StreamConfig {
+        &self.config
+    }
+
+    fn get_metrics(&self) -> &Metrics {
+        &self.metrics
+    }
 }
 
-fn create_tickers() -> (Interval, Interval, Interval) {
+fn create_tickers() -> (Interval, Interval, Interval, Interval) {
     // Set up interval ticks
+    let mut tick_5second = time::interval(Duration::from_secs(5));
     let mut tick_second = time::interval(Duration::from_secs(1));
     let mut tick_100ms = time::interval(Duration::from_millis(100));
     let mut tick_5ms = time::interval(Duration::from_millis(5));
 
+
+    tick_5second.set_missed_tick_behavior(MissedTickBehavior::Delay);
     tick_second.set_missed_tick_behavior(MissedTickBehavior::Delay);
     tick_100ms.set_missed_tick_behavior(MissedTickBehavior::Delay);
     tick_5ms.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-    (tick_second, tick_100ms, tick_5ms)
+
+    (tick_5second, tick_second, tick_100ms, tick_5ms)
 }
 
 #[derive(Debug, Default)]

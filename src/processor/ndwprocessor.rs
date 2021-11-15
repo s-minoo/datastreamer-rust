@@ -10,9 +10,9 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use crate::util::DataFmt;
 use serde::de;
 use std::fmt;
-use crate::util::DataFmt;
 
 use super::{Processor, Record};
 
@@ -43,12 +43,12 @@ where
     d.deserialize_str(NaiveDateTimeVisitor)
 }
 
-//Would love to use another struct containing common fields 
-//but will result in erros with the serialization crates 
+//Would love to use another struct containing common fields
+//but will result in erros with the serialization crates
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NDWSpeedModel {
     speed: f32,
-    #[serde(deserialize_with="from_timestamp")]
+    #[serde(deserialize_with = "from_timestamp")]
     timestamp: NaiveDateTime,
     #[serde(skip_deserializing)]
     current_timestamp: u64,
@@ -64,7 +64,7 @@ pub struct NDWSpeedModel {
 pub struct NDWFlowModel {
     period: u8,
     flow: u16,
-    #[serde(deserialize_with="from_timestamp")]
+    #[serde(deserialize_with = "from_timestamp")]
     timestamp: NaiveDateTime,
     #[serde(skip_deserializing)]
     current_timestamp: u64,
@@ -123,7 +123,9 @@ impl<A: Model + Serialize + DeserializeOwned> Record for NDWModel<A> {
             DataFmt::CSV => {
                 let mut writer = csv::Writer::from_writer(vec![]);
                 writer.serialize(val).unwrap();
-                String::from_utf8(writer.into_inner().unwrap()).unwrap().replace(" ", "\n")
+                String::from_utf8(writer.into_inner().unwrap())
+                    .unwrap()
+                    .replace(" ", "\n")
             }
         };
         return result;
@@ -181,7 +183,11 @@ impl<A: Model> NDWProcessor<A> {
             splitted_line[1].trim().to_owned(),
         );
         let lane = Self::extract_lane(&key);
-        let message = format!("{{\"internalId\": \"{}\", {}", &lane[1..], &body[1..].trim());
+        let message = format!(
+            "{{\"internalId\": \"{}\", {}",
+            &lane[1..],
+            &body[1..].trim()
+        );
         message
     }
 

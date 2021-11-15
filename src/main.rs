@@ -2,7 +2,6 @@ pub mod processor;
 pub mod publisher;
 pub mod util;
 
-
 use crate::{
     processor::ndwprocessor::{NDWFlowModel, NDWProcessor, NDWSpeedModel},
     publisher::{
@@ -15,7 +14,7 @@ use clap::{App, Arg};
 use env_logger::Env;
 use futures_util::{future::join_all, Future};
 use log::{debug, info};
-use std::{pin::Pin};
+use std::pin::Pin;
 use tokio_tungstenite::tungstenite::{self, Result};
 
 #[tokio::main]
@@ -64,7 +63,6 @@ async fn main() -> Result<()> {
 
         let folder_name = config.data_folder.unwrap();
 
-
         let future: Pin<Box<dyn Future<Output = Result<()>>>> = match config.mode {
             util::Mode::Constant => {
                 // Refactor this monstrosity please
@@ -74,7 +72,7 @@ async fn main() -> Result<()> {
                 });
                 let publi: &'static ConstantPublisher = Box::leak(publi);
 
-                create_pinned_future(folder_name, input_format, output_format, config, publi)
+                create_pinned_future(folder_name, input_format, output_format, publi)
             }
             util::Mode::Periodic => {
                 // Refactor this monstrosity please
@@ -83,7 +81,7 @@ async fn main() -> Result<()> {
                     metrics,
                 });
                 let publi: &'static PeriodicPublisher = Box::leak(publi);
-                create_pinned_future(folder_name, input_format, output_format, config, publi)
+                create_pinned_future(folder_name, input_format, output_format, publi)
             }
         };
         stream_futures.push(future);
@@ -100,7 +98,6 @@ fn create_pinned_future<Pub>(
     folder_name: &str,
     input_format: util::DataFmt,
     output_format: util::DataFmt,
-    config: util::StreamConfig,
     publi: &'static Pub,
 ) -> Pin<Box<dyn Future<Output = std::result::Result<(), tungstenite::Error>>>>
 where
@@ -108,13 +105,11 @@ where
 {
     if folder_name.contains("flow") {
         let processor = NDWProcessor::<NDWFlowModel>::new(input_format, output_format);
-        let proc: &'static NDWProcessor<NDWFlowModel> =
-            Box::leak(Box::new(processor));
-
-        Box::pin(start_stream(config.clone(), publi, proc))
+        let proc: &'static NDWProcessor<NDWFlowModel> = Box::leak(Box::new(processor));
+        Box::pin(start_stream(publi, proc))
     } else {
         let proc: &'static NDWProcessor<NDWSpeedModel> =
-            Box::leak(Box::new(NDWProcessor::new(input_format, output_format)));
-        Box::pin(start_stream(config.clone(), publi, proc))
+        Box::leak(Box::new(NDWProcessor::new(input_format, output_format)));
+        Box::pin(start_stream(publi, proc))
     }
 }

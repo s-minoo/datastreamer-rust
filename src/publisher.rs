@@ -18,11 +18,14 @@ use std::io::Error as StdError;
 use std::io::ErrorKind as StdErrorKind;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::io::AsyncBufReadExt;
+use tokio::fs::{File, OpenOptions};
+use tokio::io::{AsyncBufReadExt, BufWriter};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 use tokio_tungstenite::tungstenite::{Message, Result};
 use tokio_tungstenite::{accept_async, tungstenite::Error};
+
+use self::default::Metrics;
 
 pub mod default;
 
@@ -35,7 +38,6 @@ type GroupedData<F> = HashMap<DataKey<F>, Vec<Data<F>>>;
 ///
 /// Each new web sockets will be handled in their own tokio async threads.
 pub async fn start_stream<Proc: 'static, Pub: 'static>(
-    config_struct: StreamConfig,
     publisher: &'static Pub,
     proc: &'static Proc,
 ) -> Result<()>
@@ -43,6 +45,7 @@ where
     Pub: Publisher + Send + Sync,
     Proc: Processor + Send + Sync,
 {
+    let config_struct = publisher.get_config();
     let addr = format!("{}:{}", config_struct.ip, config_struct.port);
     let data_root = config_struct.data_folder.unwrap();
     info!(
@@ -178,4 +181,20 @@ pub trait Publisher {
     ) -> Result<()>
     where
         F: Processor;
+
+    async fn get_writer(&self) -> Result<BufWriter<File>> {
+        let file = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(self.get_id())
+            .await?;
+        Ok(BufWriter::new(file))
+    }
+
+    fn get_id(&self) -> String {
+        let config = self.get_config();
+        format!("{}_{}_{:?}", config.ip, config.port, config.mode)
+    }
+    fn get_config(&self) -> &StreamConfig;
+    fn get_metrics(&self) -> &Metrics;
 }

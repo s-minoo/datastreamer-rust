@@ -11,7 +11,6 @@ use std::{collections::HashMap, fmt::Display};
 use crate::util::DataFmt;
 use chrono::NaiveDateTime;
 
-
 type ProcKey<T> = <T as Record>::Key;
 
 /// Processes the string input and deserializes them

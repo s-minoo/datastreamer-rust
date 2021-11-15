@@ -1,3 +1,6 @@
+
+log_level="info"
+
 [[streamconfigs]]
 ip = "localhost"
 port = 9000
