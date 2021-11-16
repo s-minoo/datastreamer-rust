@@ -9,7 +9,7 @@ services:
       - "9000:9000"
       - "9001:9001"
     volumes:
-      - logvolume01:/usr/src/data-streamer/log/
+      - log:/usr/src/data-streamer/log/
 
 volumes:
-  logvolume01: 
+  log: 
