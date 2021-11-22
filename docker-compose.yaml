@@ -8,8 +8,10 @@ services:
     ports:
       - "9000:9000"
       - "9001:9001"
+    command: ["datastreamer", "config.toml"]
     volumes:
       - log:/usr/src/data-streamer/log/
+      - './config.toml:/usr/src/data-streamer/config.toml'
 
 volumes:
   log: 

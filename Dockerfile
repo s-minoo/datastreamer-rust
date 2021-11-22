@@ -6,5 +6,3 @@ ADD .dockerignore .dockerignore
 COPY . .
 RUN apk add --no-cache musl-dev
 RUN cargo install --path . 
-CMD ["datastreamer"]
-
