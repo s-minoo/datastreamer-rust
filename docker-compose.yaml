@@ -12,8 +12,6 @@ services:
     volumes:
       - "/etc/timezone:/etc/timezone:ro"
       - "/etc/localtime:/etc/localtime:ro"
-      - log:/usr/src/data-streamer/log/
+      - ./log:/usr/src/data-streamer/log/
       - './config.toml:/usr/src/data-streamer/config.toml'
 
-volumes:
-  log: 
