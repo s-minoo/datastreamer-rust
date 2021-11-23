@@ -10,6 +10,8 @@ services:
       - "9001:9001"
     command: ["datastreamer", "config.toml"]
     volumes:
+      - "/etc/timezone:/etc/timezone:ro"
+      - "/etc/localtime:/etc/localtime:ro"
       - log:/usr/src/data-streamer/log/
       - './config.toml:/usr/src/data-streamer/config.toml'
 
