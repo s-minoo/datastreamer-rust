@@ -14,4 +14,9 @@ services:
       - "/etc/localtime:/etc/localtime:ro"
       - ./log:/usr/src/data-streamer/log/
       - './config.toml:/usr/src/data-streamer/config.toml'
-
+    networks:
+      - eval
+      
+networks:
+  eval:
+    external: true
