@@ -12,11 +12,13 @@ services:
     volumes:
       - "/etc/timezone:/etc/timezone:ro"
       - "/etc/localtime:/etc/localtime:ro"
-      - ./log:/usr/src/data-streamer/log/
+      - streamer_log:/usr/src/data-streamer/log/
       - './config.toml:/usr/src/data-streamer/config.toml'
     networks:
       - eval
       
+volumes: 
+  streamer_log:
 networks:
   eval:
     external: true
