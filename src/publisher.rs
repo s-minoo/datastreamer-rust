@@ -187,7 +187,7 @@ pub trait Publisher {
         let file = OpenOptions::new()
             .append(true)
             .create(true)
-            .open(format!("log/{}", self.get_id()))
+            .open(format!("log/{}.data.log", self.get_id()))
             .await?;
         Ok(BufWriter::new(file))
     }
