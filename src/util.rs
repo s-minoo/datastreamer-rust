@@ -57,6 +57,14 @@ fn default_port() -> u16 {
     9000
 }
 
+pub fn get_output(config:&StreamConfig) -> String{
+    let id = get_id(config);
+    format!("log/{}.data.log", id)
+}
+pub fn get_id(config:&StreamConfig) -> String {
+    format!("{}_{}_{:?}", config.ip, config.port, config.mode)
+}
+
 pub async fn create_file_buffers(data_root: &str) -> Vec<BufReader<File>> {
     let future_buffers: Vec<_> = join_all(recurs_get_files(data_root))
         .await

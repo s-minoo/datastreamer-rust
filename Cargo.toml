@@ -12,23 +12,23 @@ opt-level = 3
 incremental = true
 
 [dependencies]
-serde_yaml = "0.8"
-metered= "0.8"
 async-trait = "0.1.51"
-lazy_static = "1.4.0"
 bytes = "1"
-chrono = {version= "0.4", features=["serde"]}
+chrono = { version = "0.4", features = ["serde"] }
 clap = "2.33.0"
+csv = "1.1"
 env_logger = "0.9.0"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 itertools = "0.10.0"
-serde-xml-rs = "0.5.1"
-csv = "1.1"
 json = "0.12.4"  # serde-json seems to be much slower
+lazy_static = "1.4.0"
 log = "0.4.14"
+metrics = "0.17.1"
 regex = "1.5"
 serde = { version = "1.0", features = ["derive"] }
+serde-xml-rs = "0.5.1"
 serde_json = "1.0"
+serde_yaml = "0.8"
 tokio = { version = "1.12.0", features = ["full"] }
 tokio-tungstenite = "0.15.0"
 toml = "0.5"

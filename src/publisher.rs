@@ -18,14 +18,12 @@ use std::io::Error as StdError;
 use std::io::ErrorKind as StdErrorKind;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::fs::{File, OpenOptions};
-use tokio::io::{AsyncBufReadExt, BufWriter};
+
+use tokio::io::{AsyncBufReadExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 use tokio_tungstenite::tungstenite::{Message, Result};
 use tokio_tungstenite::{accept_async, tungstenite::Error};
-
-use self::default::Metrics;
 
 pub mod default;
 
@@ -173,6 +171,7 @@ where
 ///
 #[async_trait]
 pub trait Publisher {
+
     /// Publishes the given data through a websocket.
     async fn publish_data<F>(
         &self,
@@ -182,20 +181,5 @@ pub trait Publisher {
     where
         F: Processor;
 
-    async fn get_writer(&self) -> Result<BufWriter<File>> {
-        std::fs::create_dir_all("log/")?;
-        let file = OpenOptions::new()
-            .append(true)
-            .create(true)
-            .open(format!("log/{}.data.log", self.get_id()))
-            .await?;
-        Ok(BufWriter::new(file))
-    }
-
-    fn get_id(&self) -> String {
-        let config = self.get_config();
-        format!("{}_{}_{:?}", config.ip, config.port, config.mode)
-    }
     fn get_config(&self) -> &StreamConfig;
-    fn get_metrics(&self) -> &Metrics;
 }

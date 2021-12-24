@@ -20,12 +20,14 @@ use futures_util::stream::SplitSink;
 use futures_util::SinkExt;
 use itertools::Itertools;
 use log::debug;
-use log::info;
-use metered::{measure, HitCount, Throughput};
 
-use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
-use tokio::io::BufWriter;
+
+
+
+
+use metrics::Unit;
+use metrics::gauge;
+use metrics::register_gauge;
 use tokio::net::TcpStream;
 use tokio::select;
 use tokio::time;
@@ -46,8 +48,11 @@ use super::SharedData;
 ///
 pub struct PeriodicPublisher {
     pub config: StreamConfig,
-    pub metrics: Metrics,
+    output: String, 
 }
+
+
+
 
 #[async_trait]
 impl Publisher for PeriodicPublisher {
@@ -59,12 +64,13 @@ impl Publisher for PeriodicPublisher {
     where
         F: Processor,
     {
-        let mut writer = self.get_writer().await?;
+        register_gauge!(format!("{}",self.output), Unit::CountPerSecond);
         {
             // Acquire read lock on data;
             let r_lock = data_lock.read().await;
             let data = &*r_lock;
-            let (mut tick_5second, mut tick_second, mut tick_100ms, mut tick_5ms) = create_tickers();
+            let (_tick_5second, mut tick_second, mut tick_100ms, mut tick_5ms) =
+                create_tickers();
 
             let mut minute_interval = time::interval(Duration::from_secs(60));
             minute_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -105,55 +111,22 @@ impl Publisher for PeriodicPublisher {
                     }
                 }
                 tick_second.tick().await;
-                debug!(
-                    "The throughput for this socket is: {:?}",
-                    &self.metrics.throughput
-                );
-                let val = format!("{}\n", serde_json::to_string(&self.metrics.throughput)
-                    .unwrap()
-                    .to_owned());
-                writer.write(val.as_bytes()).await?;
                 debug!("One second elapsed!");
-
-                select! {
-                    _ = tick_5second.tick() => {
-                        writer.flush().await?;
-                        info!("5 second elapsed, flushing metrics logs!");
-                    }
-                    _ = async {} => {
-                        continue
-                    }
-                };
             }
             // Drop read lock on data;
         }
         debug!("Finished sending data");
-
-        debug!(
-            "The throughput for this socket is: {:?}",
-            &self.metrics.throughput
-        );
-
-        let val = serde_json::to_string(&self.metrics.throughput)
-            .unwrap()
-            .to_owned();
-        writer.write(val.as_bytes()).await?;
-        info!("Flushing metrics logs for the last time.");
-        writer.flush().await?;
-
         Ok(())
     }
 
     fn get_config(&self) -> &StreamConfig {
         &self.config
     }
-
-    fn get_metrics(&self) -> &Metrics {
-        &self.metrics
-    }
 }
 
 impl PeriodicPublisher {
+    pub fn new(config: StreamConfig, output: String) -> Self { Self { config, output } }
+
     async fn publish_burst<T: Record>(
         &self,
         data: &Vec<T>,
@@ -161,19 +134,21 @@ impl PeriodicPublisher {
     ) -> Result<()> {
         let volume = self.config.volume;
         // no delays since its a burst publish
+        //
+        let mut throughput = 0.0; 
         for _batch in 0..9 {
             for record in data {
                 for _iteration in 0..volume {
                     let current_rec = record.insert_current_time();
-                    measure!(
-                        &self.metrics.throughput,
-                        ws_sender
-                            .send(Message::Text(format!("{}", current_rec.get_data())))
-                            .await?
-                    );
+                    throughput += 1.0; 
+                    ws_sender
+                        .send(Message::Text(format!("{}", current_rec.get_data())))
+                        .await?;
                 }
             }
         }
+
+        gauge!(format!("{}", self.output), throughput);
 
         Ok(())
     }
@@ -184,22 +159,22 @@ impl PeriodicPublisher {
         tick_100ms: &mut Interval,
         tick_5ms: &mut Interval,
     ) -> Result<()> {
+        let mut throughput = 0.0; 
         for _batch in 0..9 {
             // Lasts 100ms
             for record in data {
                 //Last 5ms
                 let current_rec = record.insert_current_time();
                 debug!("{}", current_rec.get_data());
-                measure!(
-                    &self.metrics.throughput,
-                    ws_sender
-                        .send(Message::Text(format!("{}", current_rec.get_data())))
-                        .await?
-                );
+                throughput += 1.0;
+                ws_sender
+                    .send(Message::Text(format!("{}", current_rec.get_data())))
+                    .await?;
                 tick_5ms.tick().await;
             }
             tick_100ms.tick().await;
         }
+        gauge!(format!("{}", self.output), throughput);
 
         Ok(())
     }
@@ -210,7 +185,11 @@ impl PeriodicPublisher {
 ///
 pub struct ConstantPublisher {
     pub config: StreamConfig,
-    pub metrics: Metrics,
+    output: String, 
+}
+
+impl ConstantPublisher {
+    pub fn new(config: StreamConfig, output: String) -> Self { Self { config, output } }
 }
 
 #[async_trait]
@@ -223,54 +202,37 @@ impl Publisher for ConstantPublisher {
     where
         F: Processor,
     {
-        let mut writer = self.get_writer().await?;
+        register_gauge!(format!("{}", self.output), Unit::CountPerSecond);
         {
             // Acquire read lock on data_lock
             let r_lock = data_lock.read().await;
             let data = &*r_lock;
-            let (mut tick_5second, mut tick_second, mut tick_100ms, mut tick_5ms) = create_tickers();
+            let (_tick_5second, mut tick_second, mut tick_100ms, mut tick_5ms) =
+                create_tickers();
             let volume = self.config.volume;
 
             for key in data.keys().sorted() {
                 // Last 1 second
+
+                let mut throughput = 0.0; 
                 for _batch in 0..9 {
                     // Lasts 100ms
                     for record in data.get(key).unwrap() {
                         // Last 5ms
                         for _iter in 0..volume {
                             let current_rec = record.insert_current_time();
-                            measure!(
-                                &self.metrics.throughput,
-                                ws_sender
-                                    .send(Message::Text(format!("{}", current_rec.get_data())))
-                                    .await?
-                            );
+                            throughput += 1.0; 
+                            ws_sender
+                                .send(Message::Text(format!("{}", current_rec.get_data())))
+                                .await?;
                         }
                         tick_5ms.tick().await;
                     }
                     tick_100ms.tick().await;
                 }
-                debug!(
-                    "The throughput for this socket is: {:?}",
-                    &self.metrics.throughput
-                );
+                gauge!(format!("{}", self.output), throughput);
                 tick_second.tick().await;
                 debug!("One second elapsed!");
-
-                let val = format!("{}\n",serde_json::to_string(&self.metrics.throughput)
-                    .unwrap()
-                    .to_owned());
-                writer.write(val.as_bytes()).await?;
-
-                select! {
-                    _ = tick_5second.tick() => {
-                        writer.flush().await?;
-                        info!("5 second elapsed, flushing metrics logs!");
-                    }
-                    _ = async {} => {
-                        continue
-                    }
-                };
             }
 
             // Drop read lock on data_lock
@@ -279,17 +241,6 @@ impl Publisher for ConstantPublisher {
         debug!("Finished sending data");
         ws_sender.send(Message::Close(None)).await?;
 
-        debug!(
-            "The throughput for this socket is: {:?}",
-            &self.metrics.throughput
-        );
-        let val = serde_json::to_string(&self.metrics.throughput)
-            .unwrap()
-            .to_owned();
-        writer.write(val.as_bytes()).await?;
-        info!("Flushing metrics logs for the last time.");
-        writer.flush().await?;
-
         Ok(())
     }
 
@@ -297,9 +248,7 @@ impl Publisher for ConstantPublisher {
         &self.config
     }
 
-    fn get_metrics(&self) -> &Metrics {
-        &self.metrics
-    }
+
 }
 
 fn create_tickers() -> (Interval, Interval, Interval, Interval) {
@@ -309,18 +258,10 @@ fn create_tickers() -> (Interval, Interval, Interval, Interval) {
     let mut tick_100ms = time::interval(Duration::from_millis(100));
     let mut tick_5ms = time::interval(Duration::from_millis(5));
 
-
     tick_5second.set_missed_tick_behavior(MissedTickBehavior::Delay);
     tick_second.set_missed_tick_behavior(MissedTickBehavior::Delay);
     tick_100ms.set_missed_tick_behavior(MissedTickBehavior::Delay);
     tick_5ms.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-
     (tick_5second, tick_second, tick_100ms, tick_5ms)
-}
-
-#[derive(Debug, Default)]
-pub struct Metrics {
-    pub throughput: Throughput,
-    pub hitcount: HitCount,
 }
