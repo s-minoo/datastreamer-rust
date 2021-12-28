@@ -10,7 +10,11 @@
 //! [`Publisher`]: super::Publisher
 //! [Constant]: ConstantPublisher
 //! [Periodic]: PeriodicPublisher
+use std::time::{Duration, Instant};
+
 use super::Publisher;
+use crate::metrics::Action;
+use crate::metrics::Label;
 use crate::processor::Processor;
 use crate::processor::Record;
 use crate::util::StreamConfig;
@@ -20,18 +24,13 @@ use futures_util::stream::SplitSink;
 use futures_util::SinkExt;
 use itertools::Itertools;
 use log::debug;
-
-
-
-
-
-use metrics::Unit;
+use log::info;
 use metrics::gauge;
 use metrics::register_gauge;
+use metrics::Unit;
 use tokio::net::TcpStream;
 use tokio::select;
 use tokio::time;
-use tokio::time::Duration;
 use tokio::time::Interval;
 use tokio::time::MissedTickBehavior;
 use tokio_tungstenite::tungstenite::Message;
@@ -48,11 +47,8 @@ use super::SharedData;
 ///
 pub struct PeriodicPublisher {
     pub config: StreamConfig,
-    output: String, 
+    output: String,
 }
-
-
-
 
 #[async_trait]
 impl Publisher for PeriodicPublisher {
@@ -64,15 +60,14 @@ impl Publisher for PeriodicPublisher {
     where
         F: Processor,
     {
-        register_gauge!(format!("{}",self.output), Unit::CountPerSecond);
+        register_gauge!(format!("{}", self.output), Unit::CountPerSecond);
         {
             // Acquire read lock on data;
             let r_lock = data_lock.read().await;
             let data = &*r_lock;
-            let (_tick_5second, mut tick_second, mut tick_100ms, mut tick_5ms) =
-                create_tickers();
+            let (mut tick_5second, mut tick_second, mut tick_100ms, mut tick_5ms) = create_tickers();
 
-            let mut minute_interval = time::interval(Duration::from_secs(60));
+            let mut minute_interval = time::interval(time::Duration::from_secs(60));
             minute_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
             for key in data.keys().sorted() {
@@ -112,6 +107,16 @@ impl Publisher for PeriodicPublisher {
                 }
                 tick_second.tick().await;
                 debug!("One second elapsed!");
+
+                select! {
+                    _ = tick_5second.tick() =>{
+                        gauge!(format!("{}",self.output), 0.0, "action" => "flush");
+                        info!("5 seconds elapsed, flusing metrics logs!");
+                    }
+                    _ = async {} => {
+                        continue;
+                    }
+                };
             }
             // Drop read lock on data;
         }
@@ -125,7 +130,9 @@ impl Publisher for PeriodicPublisher {
 }
 
 impl PeriodicPublisher {
-    pub fn new(config: StreamConfig, output: String) -> Self { Self { config, output } }
+    pub fn new(config: StreamConfig, output: String) -> Self {
+        Self { config, output }
+    }
 
     async fn publish_burst<T: Record>(
         &self,
@@ -135,20 +142,21 @@ impl PeriodicPublisher {
         let volume = self.config.volume;
         // no delays since its a burst publish
         //
-        let mut throughput = 0.0; 
+        let now = Instant::now();
+        let mut throughput = 0.0;
         for _batch in 0..9 {
             for record in data {
                 for _iteration in 0..volume {
                     let current_rec = record.insert_current_time();
-                    throughput += 1.0; 
+                    throughput += 1.0;
                     ws_sender
                         .send(Message::Text(format!("{}", current_rec.get_data())))
                         .await?;
                 }
             }
         }
-
-        gauge!(format!("{}", self.output), throughput);
+        let elapsed = now.elapsed().as_millis() as f64 / 1e3; 
+        gauge!(format!("{}", self.output), throughput/elapsed, "action" => "write");
 
         Ok(())
     }
@@ -159,13 +167,13 @@ impl PeriodicPublisher {
         tick_100ms: &mut Interval,
         tick_5ms: &mut Interval,
     ) -> Result<()> {
-        let mut throughput = 0.0; 
+        let mut throughput = 0.0;
+        let now = Instant::now();
         for _batch in 0..9 {
             // Lasts 100ms
             for record in data {
                 //Last 5ms
                 let current_rec = record.insert_current_time();
-                debug!("{}", current_rec.get_data());
                 throughput += 1.0;
                 ws_sender
                     .send(Message::Text(format!("{}", current_rec.get_data())))
@@ -174,7 +182,8 @@ impl PeriodicPublisher {
             }
             tick_100ms.tick().await;
         }
-        gauge!(format!("{}", self.output), throughput);
+        let elapsed = now.elapsed().as_millis() as f64 / 1e3; 
+        gauge!(format!("{}", self.output), throughput/elapsed, "action" => "write");
 
         Ok(())
     }
@@ -185,11 +194,13 @@ impl PeriodicPublisher {
 ///
 pub struct ConstantPublisher {
     pub config: StreamConfig,
-    output: String, 
+    output: String,
 }
 
 impl ConstantPublisher {
-    pub fn new(config: StreamConfig, output: String) -> Self { Self { config, output } }
+    pub fn new(config: StreamConfig, output: String) -> Self {
+        Self { config, output }
+    }
 }
 
 #[async_trait]
@@ -207,21 +218,23 @@ impl Publisher for ConstantPublisher {
             // Acquire read lock on data_lock
             let r_lock = data_lock.read().await;
             let data = &*r_lock;
-            let (_tick_5second, mut tick_second, mut tick_100ms, mut tick_5ms) =
+            let (mut tick_5second, mut tick_second, mut tick_100ms, mut tick_5ms) =
                 create_tickers();
             let volume = self.config.volume;
 
             for key in data.keys().sorted() {
                 // Last 1 second
 
-                let mut throughput = 0.0; 
+                let now = Instant::now();
+
+                let mut throughput = 0.0;
                 for _batch in 0..9 {
                     // Lasts 100ms
                     for record in data.get(key).unwrap() {
                         // Last 5ms
                         for _iter in 0..volume {
                             let current_rec = record.insert_current_time();
-                            throughput += 1.0; 
+                            throughput += 1.0;
                             ws_sender
                                 .send(Message::Text(format!("{}", current_rec.get_data())))
                                 .await?;
@@ -230,9 +243,22 @@ impl Publisher for ConstantPublisher {
                     }
                     tick_100ms.tick().await;
                 }
-                gauge!(format!("{}", self.output), throughput);
+
+                let elapsed = now.elapsed().as_millis() as f64 / 1e3;
+                gauge!(format!("{}", self.output), throughput/elapsed, "action" => "write");
+
                 tick_second.tick().await;
                 debug!("One second elapsed!");
+
+                select! {
+                    _ = tick_5second.tick() =>{
+                        gauge!(format!("{}",self.output), 0.0, "action" => "flush");
+                        info!("5 seconds elapsed, flusing metrics logs!");
+                    }
+                    _ = async {} => {
+                        continue;
+                    }
+                };
             }
 
             // Drop read lock on data_lock
@@ -247,21 +273,18 @@ impl Publisher for ConstantPublisher {
     fn get_config(&self) -> &StreamConfig {
         &self.config
     }
-
-
 }
 
 fn create_tickers() -> (Interval, Interval, Interval, Interval) {
     // Set up interval ticks
-    let mut tick_5second = time::interval(Duration::from_secs(5));
-    let mut tick_second = time::interval(Duration::from_secs(1));
-    let mut tick_100ms = time::interval(Duration::from_millis(100));
-    let mut tick_5ms = time::interval(Duration::from_millis(5));
+    let mut tick_5second = time::interval(time::Duration::from_secs(5));
+    let mut tick_second = time::interval(time::Duration::from_secs(1));
+    let mut tick_100ms = time::interval(time::Duration::from_millis(100));
+    let mut tick_5ms = time::interval(time::Duration::from_millis(5));
 
     tick_5second.set_missed_tick_behavior(MissedTickBehavior::Delay);
     tick_second.set_missed_tick_behavior(MissedTickBehavior::Delay);
     tick_100ms.set_missed_tick_behavior(MissedTickBehavior::Delay);
     tick_5ms.set_missed_tick_behavior(MissedTickBehavior::Delay);
-
     (tick_5second, tick_second, tick_100ms, tick_5ms)
 }

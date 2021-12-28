@@ -1,17 +1,12 @@
-pub mod processor;
-pub mod publisher;
-pub mod util;
-
-use crate::{
-    processor::ndwprocessor::{NDWFlowModel, NDWProcessor, NDWSpeedModel},
-    publisher::{
-        default::{ConstantPublisher, PeriodicPublisher},
-        start_stream, Publisher,
-    },
-    util::Config,
-};
 use clap::{App, Arg};
 use datastreamer::metrics::FileRecorder;
+use datastreamer::processor::ndwprocessor::{NDWFlowModel, NDWProcessor, NDWSpeedModel};
+use datastreamer::publisher::{
+    default::{ConstantPublisher, PeriodicPublisher},
+    start_stream, Publisher,
+};
+use datastreamer::util;
+use datastreamer::util::Config;
 use env_logger::Env;
 use futures_util::{future::join_all, Future};
 use log::{debug, info};
@@ -20,7 +15,7 @@ use tokio_tungstenite::tungstenite::{self, Result};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let  recorder= Box::new(FileRecorder::new());
+    let recorder = Box::new(FileRecorder::new());
     metrics::set_boxed_recorder(recorder).unwrap();
     let mut args = Vec::new();
     args.append(&mut vec![
@@ -67,20 +62,14 @@ async fn main() -> Result<()> {
         let future: Pin<Box<dyn Future<Output = Result<()>>>> = match config.mode {
             util::Mode::Constant => {
                 // Refactor this monstrosity please
-                let publi = Box::new(ConstantPublisher::new(
-                    config.clone(),
-                    output_log_file,
-                    ));
+                let publi = Box::new(ConstantPublisher::new(config.clone(), output_log_file));
                 let publi: &'static ConstantPublisher = Box::leak(publi);
 
                 create_pinned_future(folder_name, input_format, output_format, publi)
             }
             util::Mode::Periodic => {
                 // Refactor this monstrosity please
-                let publi = Box::new(PeriodicPublisher::new(
-                    config.clone(),
-                    output_log_file,
-                    ));
+                let publi = Box::new(PeriodicPublisher::new(config.clone(), output_log_file));
                 let publi: &'static PeriodicPublisher = Box::leak(publi);
                 create_pinned_future(folder_name, input_format, output_format, publi)
             }

@@ -19,7 +19,7 @@ use std::io::ErrorKind as StdErrorKind;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use tokio::io::{AsyncBufReadExt};
+use tokio::io::AsyncBufReadExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 use tokio_tungstenite::tungstenite::{Message, Result};
@@ -171,7 +171,6 @@ where
 ///
 #[async_trait]
 pub trait Publisher {
-
     /// Publishes the given data through a websocket.
     async fn publish_data<F>(
         &self,
