@@ -23,7 +23,7 @@ async fn main() -> Result<()> {
             .value_name("CONFIG")
             .required(false)
             .index(1)
-            .help("The config file in which the streams are configured. Check examples/config.toml as an example"),
+            .help("The config file in which the streams are configured. Check examples/config.toml (default usage) as an example"),
     ]);
 
     let cli_args = App::new("Image semantics extraction")
