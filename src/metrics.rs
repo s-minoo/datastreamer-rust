@@ -83,7 +83,8 @@ impl Drop for FileRecorder {
 
 impl FileRecorder {
     pub fn new() -> Self {
-        std::fs::create_dir("log/").unwrap();
+
+        std::fs::create_dir("log/").ok();
         let key_output_map = Arc::new(Mutex::new(HashMap::new()));
         Self { key_output_map }
     }

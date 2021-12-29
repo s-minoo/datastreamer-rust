@@ -59,7 +59,7 @@ fn default_port() -> u16 {
 
 pub fn get_output(config: &StreamConfig) -> String {
     let id = get_id(config);
-    format!("log/{}.data.log", id)
+    format!("log/{}.data.log.csv", id)
 }
 pub fn get_id(config: &StreamConfig) -> String {
     format!("{}_{}_{:?}", config.ip, config.port, config.mode)
