@@ -11,6 +11,7 @@ use crate::processor::{Processor, Record};
 use crate::util::{self, StreamConfig};
 use async_trait::async_trait;
 use futures_util::stream::SplitSink;
+use futures_util::stream::SplitStream;
 use futures_util::StreamExt;
 use log::{debug, error, info};
 use std::collections::HashMap;
@@ -159,8 +160,8 @@ where
 {
     let ws_stream = accept_async(stream).await.expect("Failed to accept");
     info!("New WebSocket connection: {}", peer);
-    let (ws_sender, _) = ws_stream.split();
-    publisher.publish_data::<Proc>(data_lock, ws_sender).await?;
+    let (ws_sender, ws_receiver) = ws_stream.split();
+    publisher.publish_data::<Proc>(data_lock, ws_sender, ws_receiver).await?;
     Ok(())
 }
 
@@ -176,6 +177,7 @@ pub trait Publisher {
         &self,
         data_lock: SharedData<F>,
         mut ws_sender: SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
+        mut ws_receiver: SplitStream<tokio_tungstenite::WebSocketStream<TcpStream>>
     ) -> Result<()>
     where
         F: Processor;

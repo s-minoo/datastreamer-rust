@@ -20,8 +20,10 @@ use crate::processor::Record;
 use crate::util::StreamConfig;
 use async_trait::async_trait;
 use chrono::Timelike;
+use futures_util::StreamExt;
 use futures_util::stream::SplitSink;
 use futures_util::SinkExt;
+use futures_util::stream::SplitStream;
 use itertools::Itertools;
 use log::debug;
 use log::info;
@@ -56,6 +58,7 @@ impl Publisher for PeriodicPublisher {
         &self,
         data_lock: SharedData<F>,
         mut ws_sender: SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
+        mut ws_receiver: SplitStream<tokio_tungstenite::WebSocketStream<TcpStream>>
     ) -> Result<()>
     where
         F: Processor,
@@ -117,6 +120,21 @@ impl Publisher for PeriodicPublisher {
                 gauge!(format!("{}", self.output), throughput/elapsed, "action" => "write");
 
                 select! {
+                    biased; 
+                    msg = ws_receiver.next() => {
+                        match msg {
+                            Some(msg) => {
+                                let msg = msg?; 
+                                if msg.is_ping(){
+                                    ws_sender.send(Message::Pong(msg.into_data())).await?;
+                                }
+
+                            },
+                            None => todo!(),
+                        }
+
+                    }
+
                     _ = tick_5second.tick() =>{
                         gauge!(format!("{}",self.output), 0.0, "action" => "flush");
                         info!("5 seconds elapsed, flusing metrics logs!");
@@ -211,6 +229,7 @@ impl Publisher for ConstantPublisher {
         &self,
         data_lock: SharedData<F>,
         mut ws_sender: SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
+        mut ws_receiver:SplitStream<tokio_tungstenite::WebSocketStream<TcpStream>> 
     ) -> Result<()>
     where
         F: Processor,
@@ -254,6 +273,20 @@ impl Publisher for ConstantPublisher {
                 gauge!(format!("{}", self.output), throughput/elapsed, "action" => "write");
 
                 select! {
+                    biased; 
+                    msg = ws_receiver.next() => {
+                        match msg {
+                            Some(msg) => {
+                                let msg = msg?; 
+                                if msg.is_ping(){
+                                    ws_sender.send(Message::Pong(msg.into_data())).await?;
+                                }
+
+                            },
+                            None => todo!(),
+                        }
+
+                    }
                     _ = tick_5second.tick() =>{
                         gauge!(format!("{}",self.output), 0.0, "action" => "flush");
                         info!("5 seconds elapsed, flusing metrics logs!");
