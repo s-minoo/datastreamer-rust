@@ -67,3 +67,10 @@ To start the data streamer, you could run the following command:
 
 This will start the docker for the data streamer component and listen for
 client connections at the specified ports. 
+
+
+# Stopping
+
+Stopping the data streamer is as simple as running: 
+
+`./stop.sh` 
