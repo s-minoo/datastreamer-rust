@@ -32,7 +32,7 @@ The amount of data streamed during the burst
 is determined by the `volume` parameter. 
 
 
-Multiple data sources can be streamed by 
+Multiple data sources can be streamed
 by defining more array of tables with the key `[[streamconfigs]]` 
 
 The config file looks as follows: 
