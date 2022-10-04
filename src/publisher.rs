@@ -15,8 +15,6 @@ use futures_util::stream::SplitStream;
 use futures_util::StreamExt;
 use log::{debug, error, info};
 use std::collections::HashMap;
-use std::io::Error as StdError;
-use std::io::ErrorKind as StdErrorKind;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -37,8 +35,8 @@ type GroupedData<F> = HashMap<DataKey<F>, Vec<Data<F>>>;
 ///
 /// Each new web sockets will be handled in their own tokio async threads.
 pub async fn start_stream<Proc: 'static, Pub: 'static>(
-    publisher: &'static Pub,
-    proc: &'static Proc,
+    publisher: Pub,
+    proc: Proc,
 ) -> Result<()>
 where
     Pub: Publisher + Send + Sync,
@@ -46,13 +44,13 @@ where
 {
     let config_struct = publisher.get_config();
     let addr = format!("{}:{}", config_struct.ip, config_struct.port);
-    let data_root = config_struct.data_folder.unwrap();
+    let data_root = config_struct.data_folder.as_ref().unwrap();
     info!(
         "For connection: {}:{}, reading files from the given data root directory: {}",
         config_struct.ip, config_struct.port, data_root
     );
 
-    let data = read_file_in_mem(data_root, proc).await?;
+    let data = read_file_in_mem(data_root, &proc).await?;
     info!("Finished reading and grouping data: {}", data_root);
 
     let shared_data = Arc::new(RwLock::new(data));
@@ -61,6 +59,9 @@ where
         "Listening on: {}, with publishing mode: {:?}",
         addr, config_struct.mode
     );
+
+
+    let publisher = Arc::new(publisher);
 
     while let Ok((stream, _)) = listener.accept().await {
         let peer = stream
@@ -73,7 +74,7 @@ where
             peer,
             stream,
             shared_data,
-            publisher,
+            publisher.clone(),
         ));
     }
 
@@ -91,7 +92,7 @@ where
 /// [`Processor`]: crate::processor::Processor
 async fn read_file_in_mem<F: 'static>(
     data_root: &str,
-    proc: &'static F,
+    proc: &F,
 ) -> Result<HashMap<DataKey<F>, Vec<Data<F>>>>
 where
     F: Processor,
@@ -106,20 +107,14 @@ where
         let mut lines = bf.lines();
         let mut file_data = Vec::new();
         while let Some(line) = lines.next_line().await? {
-            let line = match tokio::task::spawn_blocking(move || proc.parse(line.as_str())).await {
-                Ok(it) => it,
-                Err(err) => return Err(Error::Io(StdError::new(StdErrorKind::Other, err))),
-            };
+            let line = proc.parse(line.as_str());
             file_data.push(line);
         }
         data.append(&mut file_data);
     }
 
     //Group the data models by their key
-    let data = match tokio::task::spawn_blocking(move || F::group_output(data)).await {
-        Ok(res) => res,
-        Err(err) => return Err(Error::Io(StdError::new(StdErrorKind::Other, err))),
-    };
+    let data = F::group_output(data);
     Ok(data)
 }
 
@@ -129,12 +124,12 @@ async fn accept_connection<Proc, Pub: 'static>(
     peer: std::net::SocketAddr,
     stream: tokio::net::TcpStream,
     data_lock: SharedData<Proc>,
-    publisher: &Pub,
+    publisher: Arc<Pub>,
 ) where
     Proc: Processor,
     Pub: Publisher,
 {
-    if let Err(e) = handle_connection::<Proc, _>(peer, stream, data_lock, publisher).await {
+    if let Err(e) = handle_connection::<Proc, _>(peer, stream, data_lock, publisher.as_ref()).await {
         match e {
             Error::ConnectionClosed | Error::Protocol(_) | Error::Utf8 => (),
             err => error!("Error processing connection: {}", err),
@@ -175,10 +170,6 @@ where
 #[async_trait]
 pub trait Publisher: Sized {
     fn new(config: StreamConfig, output: String) -> Self;
-
-    fn new_leaked(config: StreamConfig, output: String) -> &'static Self {
-        Box::leak(Box::new(Self::new(config, output)))
-    }
 
     /// Publishes the given data through a websocket.
     async fn publish_data<F>(

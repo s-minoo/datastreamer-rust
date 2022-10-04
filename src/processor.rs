@@ -24,10 +24,6 @@ pub trait Processor: Sized + Send + Sync {
 
     fn new(input_fmt: DataFmt, output_fmt: DataFmt) -> Self;
 
-    fn new_leaked(input_fmt: DataFmt, output_fmt: DataFmt) -> &'static Self {
-        Box::leak(Box::new(Self::new(input_fmt, output_fmt)))
-    }
-
     /// Returns a tuple containing the key and the data.
     ///
     /// Parses the given input string to the custom data model.

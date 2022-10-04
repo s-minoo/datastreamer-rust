@@ -34,13 +34,18 @@ async fn main() -> Result<()> {
     let config_path = cli_args
         .value_of("config")
         .unwrap_or("examples/config.toml");
-    let config_content = std::fs::read_to_string(config_path)?.into_boxed_str();
-    let config_content: &'static str = Box::leak(config_content);
-    let config_struct: Config = toml::from_str(config_content)
+    let config_content = std::fs::read_to_string(config_path)?;
+    let config_struct: Config = toml::from_str(&config_content)
         .map_err(|_| tungstenite::Error::Io(std::io::ErrorKind::InvalidData.into()))?;
 
     let env = Env::default()
-        .filter_or("MY_LOG_LEVEL", config_struct.log_level.unwrap_or("debug"))
+        .filter_or(
+            "MY_LOG_LEVEL",
+            config_struct
+                .log_level
+                .as_deref()
+                .unwrap_or("debug"),
+        )
         .write_style_or("MY_LOG_STYLE", "auto");
 
     env_logger::init_from_env(env);
@@ -52,7 +57,7 @@ async fn main() -> Result<()> {
 
     let mut stream_futures = Vec::new();
     for config in configs {
-        let folder_name = config.data_folder.unwrap();
+        let folder_name = config.data_folder.as_ref().unwrap();
 
         let future: Pin<Box<dyn Future<Output = Result<()>>>> =
             match (config.mode, folder_name.contains("flow")) {
@@ -85,7 +90,7 @@ where
     Proc: Processor + 'static,
 {
     let output = util::get_output(&config);
-    let proc = Proc::new_leaked(config.input_format, config.output_format);
-    let publi = Pub::new_leaked(config, output);
+    let proc = Proc::new(config.input_format, config.output_format);
+    let publi = Pub::new(config, output);
     Box::pin(start_stream(publi, proc))
 }
