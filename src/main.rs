@@ -1,12 +1,13 @@
 use clap::{App, Arg};
 use datastreamer::metrics::FileRecorder;
 use datastreamer::processor::ndwprocessor::{NDWFlowModel, NDWProcessor, NDWSpeedModel};
+use datastreamer::processor::Processor;
 use datastreamer::publisher::{
     default::{ConstantPublisher, PeriodicPublisher},
     start_stream, Publisher,
 };
-use datastreamer::util;
 use datastreamer::util::Config;
+use datastreamer::util::{self, StreamConfig};
 use env_logger::Env;
 use futures_util::{future::join_all, Future};
 use log::{debug, info};
@@ -51,54 +52,41 @@ async fn main() -> Result<()> {
 
     let mut stream_futures = Vec::new();
     for config in configs {
-        let output_format = config.output_format;
-        let input_format = config.input_format;
-        // this is so ugly this needs refactoring in a rust idiomatic way
-        // god help me refactor this monstrosity
 
         let folder_name = config.data_folder.unwrap();
-        let output_log_file = util::get_output(&config);
 
-        let future: Pin<Box<dyn Future<Output = Result<()>>>> = match config.mode {
-            util::Mode::Constant => {
-                // Refactor this monstrosity please
-                let publi = Box::new(ConstantPublisher::new(config.clone(), output_log_file));
-                let publi: &'static ConstantPublisher = Box::leak(publi);
-
-                create_pinned_future(folder_name, input_format, output_format, publi)
-            }
-            util::Mode::Periodic => {
-                // Refactor this monstrosity please
-                let publi = Box::new(PeriodicPublisher::new(config.clone(), output_log_file));
-                let publi: &'static PeriodicPublisher = Box::leak(publi);
-                create_pinned_future(folder_name, input_format, output_format, publi)
-            }
-        };
+        let future: Pin<Box<dyn Future<Output = Result<()>>>> =
+            match (config.mode, folder_name.contains("flow")) {
+                (util::Mode::Constant, true) => {
+                    create_pinned_future::<ConstantPublisher, NDWProcessor<NDWFlowModel>>(config)
+                }
+                (util::Mode::Constant, false) => {
+                    create_pinned_future::<ConstantPublisher, NDWProcessor<NDWSpeedModel>>(config)
+                }
+                (util::Mode::Periodic, true) => {
+                    create_pinned_future::<PeriodicPublisher, NDWProcessor<NDWFlowModel>>(config)
+                }
+                (util::Mode::Periodic, false) => {
+                    create_pinned_future::<PeriodicPublisher, NDWProcessor<NDWSpeedModel>>(config)
+                }
+            };
         stream_futures.push(future);
     }
 
     join_all(stream_futures).await;
 
     Ok(())
-    //start_stream(config_struct).await;
 }
 
-fn create_pinned_future<Pub>(
-    folder_name: &str,
-    input_format: util::DataFmt,
-    output_format: util::DataFmt,
-    publi: &'static Pub,
+fn create_pinned_future<Pub, Proc>(
+    config: StreamConfig,
 ) -> Pin<Box<dyn Future<Output = std::result::Result<(), tungstenite::Error>>>>
 where
-    Pub: Publisher + Send + Sync,
+    Pub: Publisher + Send + Sync + 'static,
+    Proc: Processor + 'static,
 {
-    if folder_name.contains("flow") {
-        let processor = NDWProcessor::<NDWFlowModel>::new(input_format, output_format);
-        let proc: &'static NDWProcessor<NDWFlowModel> = Box::leak(Box::new(processor));
-        Box::pin(start_stream(publi, proc))
-    } else {
-        let proc: &'static NDWProcessor<NDWSpeedModel> =
-            Box::leak(Box::new(NDWProcessor::new(input_format, output_format)));
-        Box::pin(start_stream(publi, proc))
-    }
+    let output = util::get_output(&config);
+    let proc = Proc::new_leaked(config.input_format, config.output_format);
+    let publi = Pub::new_leaked(config, output);
+    Box::pin(start_stream(publi, proc))
 }

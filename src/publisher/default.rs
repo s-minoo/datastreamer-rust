@@ -54,6 +54,10 @@ pub struct PeriodicPublisher {
 
 #[async_trait]
 impl Publisher for PeriodicPublisher {
+    fn new(config: StreamConfig, output: String) -> Self {
+        Self { config, output }
+    }
+
     async fn publish_data<F>(
         &self,
         data_lock: SharedData<F>,
@@ -156,9 +160,6 @@ impl Publisher for PeriodicPublisher {
 }
 
 impl PeriodicPublisher {
-    pub fn new(config: StreamConfig, output: String) -> Self {
-        Self { config, output }
-    }
 
     async fn publish_burst<T: Record>(
         &self,
@@ -217,14 +218,12 @@ pub struct ConstantPublisher {
     output: String,
 }
 
-impl ConstantPublisher {
-    pub fn new(config: StreamConfig, output: String) -> Self {
-        Self { config, output }
-    }
-}
-
 #[async_trait]
 impl Publisher for ConstantPublisher {
+    fn new(config: StreamConfig, output: String) -> Self {
+        Self { config, output }
+    }
+
     async fn publish_data<F>(
         &self,
         data_lock: SharedData<F>,

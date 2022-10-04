@@ -171,7 +171,13 @@ where
 /// by the underlying implementations of this trait.
 ///
 #[async_trait]
-pub trait Publisher {
+pub trait Publisher: Sized {
+    fn new(config: StreamConfig, output: String) -> Self;
+
+    fn new_leaked(config: StreamConfig, output: String) -> &'static Self {
+        Box::leak(Box::new(Self::new(config, output)))
+    }
+
     /// Publishes the given data through a websocket.
     async fn publish_data<F>(
         &self,

@@ -19,8 +19,14 @@ type ProcKey<T> = <T as Record>::Key;
 /// **TODO**: Might want to use [`serde`] crate for this
 ///
 /// [`serde`]: serde
-pub trait Processor: Send + Sync {
+pub trait Processor: Sized + Send + Sync {
     type Model: Record + Send + Sync + Debug;
+
+    fn new(input_fmt: DataFmt, output_fmt: DataFmt) -> Self;
+
+    fn new_leaked(input_fmt: DataFmt, output_fmt: DataFmt) -> &'static Self {
+        Box::leak(Box::new(Self::new(input_fmt, output_fmt)))
+    }
 
     /// Returns a tuple containing the key and the data.
     ///
