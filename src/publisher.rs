@@ -161,7 +161,9 @@ where
     let ws_stream = accept_async(stream).await.expect("Failed to accept");
     info!("New WebSocket connection: {}", peer);
     let (ws_sender, ws_receiver) = ws_stream.split();
-    publisher.publish_data::<Proc>(data_lock, ws_sender, ws_receiver).await?;
+    publisher
+        .publish_data::<Proc>(data_lock, ws_sender, ws_receiver)
+        .await?;
     Ok(())
 }
 
@@ -171,13 +173,19 @@ where
 /// by the underlying implementations of this trait.
 ///
 #[async_trait]
-pub trait Publisher {
+pub trait Publisher: Sized {
+    fn new(config: StreamConfig, output: String) -> Self;
+
+    fn new_leaked(config: StreamConfig, output: String) -> &'static Self {
+        Box::leak(Box::new(Self::new(config, output)))
+    }
+
     /// Publishes the given data through a websocket.
     async fn publish_data<F>(
         &self,
         data_lock: SharedData<F>,
         mut ws_sender: SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
-        mut ws_receiver: SplitStream<tokio_tungstenite::WebSocketStream<TcpStream>>
+        mut ws_receiver: SplitStream<tokio_tungstenite::WebSocketStream<TcpStream>>,
     ) -> Result<()>
     where
         F: Processor;

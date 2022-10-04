@@ -10,20 +10,19 @@
 //! [`Publisher`]: super::Publisher
 //! [Constant]: ConstantPublisher
 //! [Periodic]: PeriodicPublisher
-use std::time::{Instant};
+use std::time::Instant;
 
 use super::Publisher;
-
 
 use crate::processor::Processor;
 use crate::processor::Record;
 use crate::util::StreamConfig;
 use async_trait::async_trait;
 use chrono::Timelike;
-use futures_util::StreamExt;
 use futures_util::stream::SplitSink;
-use futures_util::SinkExt;
 use futures_util::stream::SplitStream;
+use futures_util::SinkExt;
+use futures_util::StreamExt;
 use itertools::Itertools;
 use log::debug;
 use log::info;
@@ -54,11 +53,15 @@ pub struct PeriodicPublisher {
 
 #[async_trait]
 impl Publisher for PeriodicPublisher {
+    fn new(config: StreamConfig, output: String) -> Self {
+        Self { config, output }
+    }
+
     async fn publish_data<F>(
         &self,
         data_lock: SharedData<F>,
         mut ws_sender: SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
-        mut ws_receiver: SplitStream<tokio_tungstenite::WebSocketStream<TcpStream>>
+        mut ws_receiver: SplitStream<tokio_tungstenite::WebSocketStream<TcpStream>>,
     ) -> Result<()>
     where
         F: Processor,
@@ -68,7 +71,8 @@ impl Publisher for PeriodicPublisher {
             // Acquire read lock on data;
             let r_lock = data_lock.read().await;
             let data = &*r_lock;
-            let (mut tick_5second, mut tick_second, mut tick_100ms, mut tick_5ms) = create_tickers();
+            let (mut tick_5second, mut tick_second, mut tick_100ms, mut tick_5ms) =
+                create_tickers();
 
             let mut minute_interval = time::interval(time::Duration::from_secs(60));
             minute_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -89,13 +93,14 @@ impl Publisher for PeriodicPublisher {
                         throughput = self.publish_burst(bucket_data, &mut ws_sender).await?;
                         debug!("Finished burst publishing for timestamp: {:?}", time_stamp);
                     } else {
-                        throughput = self.publish_constant(
-                            bucket_data,
-                            &mut ws_sender,
-                            &mut tick_100ms,
-                            &mut tick_5ms,
-                        )
-                       .await?;
+                        throughput = self
+                            .publish_constant(
+                                bucket_data,
+                                &mut ws_sender,
+                                &mut tick_100ms,
+                                &mut tick_5ms,
+                            )
+                            .await?;
                     }
                 } else {
                     // If the records themselves are not chronologically ordered,
@@ -109,22 +114,20 @@ impl Publisher for PeriodicPublisher {
                             self.publish_constant(bucket_data, &mut ws_sender, &mut tick_100ms, &mut tick_5ms).await?
                         }
                     };
-
-                
                 }
                 tick_second.tick().await;
                 debug!("One second elapsed!");
 
-                let elapsed = now.elapsed().as_secs_f64(); 
+                let elapsed = now.elapsed().as_secs_f64();
                 debug!("Elapsed time: {}, throughput: {}", elapsed, throughput);
                 gauge!(format!("{}", self.output), throughput/elapsed, "action" => "write");
 
                 select! {
-                    biased; 
+                    biased;
                     msg = ws_receiver.next() => {
                         match msg {
                             Some(msg) => {
-                                let msg = msg?; 
+                                let msg = msg?;
                                 if msg.is_ping(){
                                     ws_sender.send(Message::Pong(msg.into_data())).await?;
                                 }
@@ -156,10 +159,6 @@ impl Publisher for PeriodicPublisher {
 }
 
 impl PeriodicPublisher {
-    pub fn new(config: StreamConfig, output: String) -> Self {
-        Self { config, output }
-    }
-
     async fn publish_burst<T: Record>(
         &self,
         data: &Vec<T>,
@@ -217,19 +216,17 @@ pub struct ConstantPublisher {
     output: String,
 }
 
-impl ConstantPublisher {
-    pub fn new(config: StreamConfig, output: String) -> Self {
-        Self { config, output }
-    }
-}
-
 #[async_trait]
 impl Publisher for ConstantPublisher {
+    fn new(config: StreamConfig, output: String) -> Self {
+        Self { config, output }
+    }
+
     async fn publish_data<F>(
         &self,
         data_lock: SharedData<F>,
         mut ws_sender: SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
-        mut ws_receiver:SplitStream<tokio_tungstenite::WebSocketStream<TcpStream>> 
+        mut ws_receiver: SplitStream<tokio_tungstenite::WebSocketStream<TcpStream>>,
     ) -> Result<()>
     where
         F: Processor,
@@ -265,7 +262,6 @@ impl Publisher for ConstantPublisher {
                     tick_100ms.tick().await;
                 }
 
-
                 tick_second.tick().await;
                 debug!("One second elapsed!");
 
@@ -273,11 +269,11 @@ impl Publisher for ConstantPublisher {
                 gauge!(format!("{}", self.output), throughput/elapsed, "action" => "write");
 
                 select! {
-                    biased; 
+                    biased;
                     msg = ws_receiver.next() => {
                         match msg {
                             Some(msg) => {
-                                let msg = msg?; 
+                                let msg = msg?;
                                 if msg.is_ping(){
                                     ws_sender.send(Message::Pong(msg.into_data())).await?;
                                 }
