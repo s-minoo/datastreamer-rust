@@ -43,11 +43,8 @@ where
     d.deserialize_str(NaiveDateTimeVisitor)
 }
 
-//Would love to use another struct containing common fields
-//but will result in erros with the serialization crates
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct NDWSpeedModel {
-    speed: f32,
+struct ModelCommon {
     #[serde(deserialize_with = "from_timestamp")]
     timestamp: NaiveDateTime,
     #[serde(skip_deserializing)]
@@ -58,42 +55,45 @@ pub struct NDWSpeedModel {
     num_lanes: u8,
     #[serde(rename = "internalId")]
     internal_id: String,
+}
+
+//Would love to use another struct containing common fields
+//but will result in erros with the serialization crates
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NDWSpeedModel {
+    speed: f32,
+    #[serde(flatten)]
+    common: ModelCommon,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NDWFlowModel {
     period: u8,
     flow: u16,
-    #[serde(deserialize_with = "from_timestamp")]
-    timestamp: NaiveDateTime,
-    #[serde(skip_deserializing)]
-    current_timestamp: u64,
-    accuracy: u8,
-    lat: f64,
-    long: f64,
-    num_lanes: u8,
-    #[serde(rename = "internalId")]
-    internal_id: String,
+    #[serde(flatten)]
+    common: ModelCommon,
 }
 
 impl Model for NDWFlowModel {
     fn update_timestamp(&mut self, timestamp_ms: u128) {
-        self.current_timestamp = timestamp_ms as u64;
+        self.common.current_timestamp = timestamp_ms as u64;
     }
 
     fn get_timestamp(&self) -> NaiveDateTime {
-        self.timestamp
+        self.common.timestamp
     }
 }
+
 impl Model for NDWSpeedModel {
     fn update_timestamp(&mut self, timestamp_ms: u128) {
-        self.current_timestamp = timestamp_ms as u64;
+        self.common.current_timestamp = timestamp_ms as u64;
     }
 
     fn get_timestamp(&self) -> NaiveDateTime {
-        self.timestamp
+        self.common.timestamp
     }
 }
+
 pub trait Model: Clone {
     fn update_timestamp(&mut self, timestamp_ms: u128);
     fn get_timestamp(&self) -> NaiveDateTime;
@@ -117,7 +117,7 @@ impl<A: Model + Serialize + DeserializeOwned> Record for NDWModel<A> {
 
     fn serialize(&self, fmt: &DataFmt) -> String {
         let val = &self.model;
-         match fmt {
+        match fmt {
             DataFmt::JSON => serde_json::to_string(val).unwrap(),
             DataFmt::XML => serde_xml_rs::to_string(val).unwrap(),
             DataFmt::CSV => {
@@ -164,7 +164,6 @@ pub struct NDWProcessor<A> {
 }
 
 impl<A: Model> NDWProcessor<A> {
-
     fn preprocess_input(input: &str) -> String {
         //Same as the DataUtils method in data-stream-generator module of the
         //open stream processing benchmark (OSP benchmark)

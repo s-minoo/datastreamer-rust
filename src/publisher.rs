@@ -161,7 +161,9 @@ where
     let ws_stream = accept_async(stream).await.expect("Failed to accept");
     info!("New WebSocket connection: {}", peer);
     let (ws_sender, ws_receiver) = ws_stream.split();
-    publisher.publish_data::<Proc>(data_lock, ws_sender, ws_receiver).await?;
+    publisher
+        .publish_data::<Proc>(data_lock, ws_sender, ws_receiver)
+        .await?;
     Ok(())
 }
 
@@ -183,7 +185,7 @@ pub trait Publisher: Sized {
         &self,
         data_lock: SharedData<F>,
         mut ws_sender: SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>,
-        mut ws_receiver: SplitStream<tokio_tungstenite::WebSocketStream<TcpStream>>
+        mut ws_receiver: SplitStream<tokio_tungstenite::WebSocketStream<TcpStream>>,
     ) -> Result<()>
     where
         F: Processor;

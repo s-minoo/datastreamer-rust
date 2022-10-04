@@ -32,7 +32,7 @@ pub trait Processor: Sized + Send + Sync {
     ///
     /// Parses the given input string to the custom data model.
     fn parse(&self, input_line: &str) -> (ProcKey<Self::Model>, Self::Model) {
-        let model = Self::Model::deserialize(input_line.to_string(), self.get_outputfmt().clone());
+        let model = Self::Model::deserialize(input_line.to_string(), *self.get_outputfmt());
         (model.get_key(), model)
     }
 

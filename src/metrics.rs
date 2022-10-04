@@ -83,10 +83,15 @@ impl Drop for FileRecorder {
 
 impl FileRecorder {
     pub fn new() -> Self {
-
         std::fs::create_dir("log/").ok();
         let key_output_map = Arc::new(Mutex::new(HashMap::new()));
         Self { key_output_map }
+    }
+}
+
+impl Default for FileRecorder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -163,18 +168,15 @@ fn handle_action<T: ToString>(
     action: Action,
     opt_value: Option<T>,
 ) -> Result<(), std::io::Error> {
-
-
-    debug!("{:?}", map.keys().collect_vec()); 
+    debug!("{:?}", map.keys().collect_vec());
     debug!("{}", key.name());
 
-
-    let writer = match map.get_mut(&key.name().to_string()){
+    let writer = match map.get_mut(&key.name().to_string()) {
         Some(writer) => writer,
         None => {
             init_file(key);
             map.get_mut(&key.name().to_string()).unwrap()
-        },
+        }
     };
 
     match action {
@@ -186,7 +188,6 @@ fn handle_action<T: ToString>(
             if let Some(val) = opt_value {
                 let buf = format!("{}\n", val.to_string());
                 writer.write(buf.as_bytes()).map(|_| ())
-                
             } else {
                 Ok(())
             }
@@ -194,9 +195,13 @@ fn handle_action<T: ToString>(
     }
 }
 fn init_file(key: &Key) -> BufWriter<File> {
-
     debug!("Init-file called!");
-    let file = OpenOptions::new().write(true).append(true).create(true).open(key.name()).unwrap();
+    let file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .create(true)
+        .open(key.name())
+        .unwrap();
     let mut writer = BufWriter::new(file);
     let header = "throughput (msg/s)\n".as_bytes();
     writer.write_all(header).unwrap();

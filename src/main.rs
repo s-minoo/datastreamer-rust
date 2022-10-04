@@ -52,7 +52,6 @@ async fn main() -> Result<()> {
 
     let mut stream_futures = Vec::new();
     for config in configs {
-
         let folder_name = config.data_folder.unwrap();
 
         let future: Pin<Box<dyn Future<Output = Result<()>>>> =
