@@ -20,7 +20,7 @@ pub enum DataFmt {
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub streamconfigs: Vec<StreamConfig>,
-    pub log_level: Option<&'static str>,
+    pub log_level: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -38,7 +38,7 @@ pub struct StreamConfig {
     pub output_format: DataFmt,
     #[serde(default = "default_input_fmt")]
     pub input_format: DataFmt,
-    pub data_folder: Option<&'static str>,
+    pub data_folder: Option<String>,
 }
 
 fn default_input_fmt() -> DataFmt {
